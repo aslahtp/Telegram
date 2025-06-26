@@ -8260,9 +8260,9 @@ public class ProfileActivity extends BaseFragment
                 updateCollectibleHint();
             } else if (extraHeight <= AndroidUtilities.dp(88f)) {
                 float avatarWidth = avatarContainer.getMeasuredWidth();
-                float parentWidth = ((View) avatarContainer.getParent()).getMeasuredWidth();
-                float centerX = (parentWidth - avatarWidth) / 2f;
-                avatarScale = 1.0f;
+                float screenWidth = AndroidUtilities.displaySize.x;
+                float centerX = (screenWidth - avatarWidth) / 2f - AndroidUtilities.dp(64f);
+                avatarScale = 2.0f;
                 if (storyView != null) {
                     storyView.invalidate();
                 }
@@ -8274,7 +8274,7 @@ public class ProfileActivity extends BaseFragment
                     avatarContainer.setScaleX(1.0f);
                     avatarContainer.setScaleY(1.0f);
                     avatarContainer.setTranslationX(centerX);
-                    avatarContainer.setTranslationY((float) Math.ceil(avatarY));
+                    avatarContainer.setTranslationY((float) Math.ceil(avatarY) - AndroidUtilities.dp(35f));
                     float extra = AndroidUtilities.dp(42) * avatarScale - AndroidUtilities.dp(42);
                     timeItem.setTranslationX(avatarContainer.getX() + AndroidUtilities.dp(16) + extra);
                     timeItem.setTranslationY(avatarContainer.getY() + AndroidUtilities.dp(15) + extra);
