@@ -8259,7 +8259,7 @@ public class ProfileActivity extends BaseFragment
 
                 updateCollectibleHint();
             } else if (extraHeight <= AndroidUtilities.dp(88f)) {
-                float avatarWidth = avatarContainer.getMeasuredWidth();
+                float avatarWidth = avatarContainer.getMeasuredWidth() * 2.0f;
                 float screenWidth = AndroidUtilities.displaySize.x;
                 float centerX = (screenWidth - avatarWidth) / 2f - AndroidUtilities.dp(64f);
                 avatarScale = 2.0f;
@@ -8271,8 +8271,8 @@ public class ProfileActivity extends BaseFragment
                 }
                 float nameScale = 1.0f + 0.12f * diff;
                 if (expandAnimator == null || !expandAnimator.isRunning()) {
-                    avatarContainer.setScaleX(1.0f);
-                    avatarContainer.setScaleY(1.0f);
+                    avatarContainer.setScaleX(2.0f);
+                    avatarContainer.setScaleY(2.0f);
                     avatarContainer.setTranslationX(centerX);
                     avatarContainer.setTranslationY((float) Math.ceil(avatarY) - AndroidUtilities.dp(35f));
                     float extra = AndroidUtilities.dp(42) * avatarScale - AndroidUtilities.dp(42);
