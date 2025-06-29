@@ -319,6 +319,7 @@ import java.util.zip.ZipOutputStream;
 
 import org.telegram.ui.Components.voip.VoIPHelper;
 import org.telegram.ui.ProfileNotificationsActivity;
+
 public class ProfileActivity extends BaseFragment
         implements NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate,
         SharedMediaLayout.SharedMediaPreloaderDelegate, ImageUpdater.ImageUpdaterDelegate, SharedMediaLayout.Delegate {
@@ -6550,31 +6551,123 @@ public class ProfileActivity extends BaseFragment
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user != null && !UserObject.isUserSelf(user)) {
                 TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
-                VoIPHelper.startCall(user, false, userFull != null && userFull.video_calls_available, getParentActivity(), userFull, getAccountInstance());
+                VoIPHelper.startCall(user, false, userFull != null && userFull.video_calls_available,
+                        getParentActivity(), userFull, getAccountInstance());
             }
         }
     }
-    
+
     private void onVideoCallClick() {
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user != null && !UserObject.isUserSelf(user)) {
                 TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
-                VoIPHelper.startCall(user, true, userFull != null && userFull.video_calls_available, getParentActivity(), userFull, getAccountInstance());
+                VoIPHelper.startCall(user, true, userFull != null && userFull.video_calls_available,
+                        getParentActivity(), userFull, getAccountInstance());
             }
         }
     }
 
     private void onMuteClick() {
-        // Example: open notification settings for this user
-        if (userId != 0) {
-            long did = userId;
-            Bundle args = new Bundle();
-            args.putLong("dialog_id", did);
-            presentFragment(new ProfileNotificationsActivity(args));
-        }
+        ChatNotificationsPopupWrapper chatNotificationsPopupWrapper = new ChatNotificationsPopupWrapper(
+                getContext(),
+                currentAccount,
+                null,
+                true,
+                true,
+                new ChatNotificationsPopupWrapper.Callback() {
+                    @Override
+                    public void toggleSound() {
+                        SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+                        boolean enabled = !preferences.getBoolean(
+                                "sound_enabled_" + NotificationsController.getSharedPrefKey(dialogId, topicId),
+                                true);
+                        preferences.edit()
+                                .putBoolean(
+                                        "sound_enabled_" + NotificationsController.getSharedPrefKey(dialogId, topicId),
+                                        enabled)
+                                .apply();
+                        if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
+                            BulletinFactory.createSoundEnabledBulletin(
+                                    ProfileActivity.this,
+                                    enabled ? NotificationsController.SETTING_SOUND_ON
+                                            : NotificationsController.SETTING_SOUND_OFF,
+                                    getResourceProvider()).show();
+                        }
+                    }
+
+                    @Override
+                    public void muteFor(int timeInSeconds) {
+                        if (timeInSeconds == 0) {
+                            if (getMessagesController().isDialogMuted(dialogId, topicId)) {
+                                toggleMute();
+                            }
+                            if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
+                                BulletinFactory.createMuteBulletin(
+                                        ProfileActivity.this,
+                                        NotificationsController.SETTING_MUTE_UNMUTE,
+                                        timeInSeconds,
+                                        getResourceProvider()).show();
+                            }
+                        } else {
+                            getNotificationsController().muteUntil(dialogId, topicId, timeInSeconds);
+                            if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
+                                BulletinFactory.createMuteBulletin(
+                                        ProfileActivity.this,
+                                        NotificationsController.SETTING_MUTE_CUSTOM,
+                                        timeInSeconds,
+                                        getResourceProvider()).show();
+                            }
+                            updateExceptions();
+                            if (notificationsRow >= 0 && listAdapter != null) {
+                                listAdapter.notifyItemChanged(notificationsRow);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void showCustomize() {
+                        if (dialogId != 0) {
+                            Bundle args = new Bundle();
+                            args.putLong("dialog_id", dialogId);
+                            args.putLong("topic_id", topicId);
+                            presentFragment(new ProfileNotificationsActivity(args, resourcesProvider));
+                        }
+                    }
+
+                    @Override
+                    public void toggleMute() {
+                        boolean muted = getMessagesController().isDialogMuted(dialogId, topicId);
+                        getNotificationsController().muteDialog(dialogId, topicId, !muted);
+                        if (ProfileActivity.this.fragmentView != null) {
+                            BulletinFactory.createMuteBulletin(ProfileActivity.this, !muted, null).show();
+                        }
+                        updateExceptions();
+                        if (notificationsRow >= 0 && listAdapter != null) {
+                            listAdapter.notifyItemChanged(notificationsRow);
+                        }
+                    }
+
+                    @Override
+                    public void openExceptions() {
+                        Bundle bundle = new Bundle();
+                        bundle.putLong("dialog_id", dialogId);
+                        TopicsNotifySettingsFragments notifySettings = new TopicsNotifySettingsFragments(bundle);
+                        notifySettings.setExceptions(notificationsExceptionTopics);
+                        presentFragment(notifySettings);
+                    }
+                },
+                getResourceProvider());
+        chatNotificationsPopupWrapper.update(dialogId, topicId, notificationsExceptionTopics);
+
+        View anchorView = actionBar;
+        int[] location = new int[2];
+        anchorView.getLocationOnScreen(location);
+        int x = location[0] + anchorView.getWidth() / 2;
+        int y = location[1] + anchorView.getHeight();
+        chatNotificationsPopupWrapper.showAsOptions(ProfileActivity.this, anchorView, x, y);
     }
-    
+
     private void onMessageClick() {
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
@@ -10192,7 +10285,7 @@ public class ProfileActivity extends BaseFragment
                     reportRow = rowCount++;
                     lastSectionRow = rowCount++;
                 }
-                
+
             }
         } else if (isTopic) {
             infoHeaderRow = rowCount++;
@@ -12434,30 +12527,34 @@ public class ProfileActivity extends BaseFragment
     }
 
     // Add this inside ListAdapter, before onCreateViewHolder
-private LinearLayout createActionButton(Context context, int iconRes, String label, View.OnClickListener listener) {
-    LinearLayout layout = new LinearLayout(context);
-    layout.setOrientation(LinearLayout.VERTICAL);
-    layout.setGravity(Gravity.CENTER);
-    layout.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(64), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
-    layout.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8));
+    private LinearLayout createActionButton(Context context, int iconRes, String label, View.OnClickListener listener) {
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER);
+        layout.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(64),
+                getThemedColor(Theme.key_profile_actionBackground),
+                getThemedColor(Theme.key_profile_actionPressedBackground)));
+        layout.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8));
 
-    ImageView icon = new ImageView(context);
-    icon.setImageResource(iconRes);
-    icon.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
-    LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(32), AndroidUtilities.dp(32));
-    iconParams.gravity = Gravity.CENTER;
-    layout.addView(icon, iconParams);
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(32),
+                AndroidUtilities.dp(32));
+        iconParams.gravity = Gravity.CENTER;
+        layout.addView(icon, iconParams);
 
-    TextView text = new TextView(context);
-    text.setText(label);
-    text.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
-    text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-    text.setGravity(Gravity.CENTER);
-    layout.addView(text, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView text = new TextView(context);
+        text.setText(label);
+        text.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        text.setGravity(Gravity.CENTER);
+        layout.addView(text, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
-    layout.setOnClickListener(listener);
-    return layout;
-}
+        layout.setOnClickListener(listener);
+        return layout;
+    }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
         private final static int VIEW_TYPE_HEADER = 1,
@@ -12763,31 +12860,37 @@ private LinearLayout createActionButton(Context context, int iconRes, String lab
                     view = frameLayout;
                     view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
                     break;
-                    case VIEW_TYPE_ACTION_BUTTONS: {
-                        LinearLayout actionButtonsLayout = new LinearLayout(mContext);
-                        actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
-                        actionButtonsLayout.setGravity(Gravity.CENTER);
-                        actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
-                    
-                        // Use your actual icon resources here (replace with your own if needed)
-                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message, LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
-                        LinearLayout muteButton = createActionButton(mContext, R.drawable.mute, LocaleController.getString("Mute", R.string.Mute), v -> onMuteClick());
-                        LinearLayout callButton = createActionButton(mContext, R.drawable.call, LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
-                        LinearLayout videoButton = createActionButton(mContext, R.drawable.video, LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
-                    
-                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-                        params.gravity = Gravity.CENTER;
-                        params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
-                    
-                        actionButtonsLayout.addView(messageButton, params);
-                        actionButtonsLayout.addView(muteButton, params);
-                        actionButtonsLayout.addView(callButton, params);
-                        actionButtonsLayout.addView(videoButton, params);
-                    
-                        view = actionButtonsLayout;
-                        view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
-                        break;
-                    }
+                case VIEW_TYPE_ACTION_BUTTONS: {
+                    LinearLayout actionButtonsLayout = new LinearLayout(mContext);
+                    actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
+                    actionButtonsLayout.setGravity(Gravity.CENTER);
+                    actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12),
+                            AndroidUtilities.dp(16), AndroidUtilities.dp(12));
+
+                    // Use your actual icon resources here (replace with your own if needed)
+                    LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
+                            LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
+                    LinearLayout muteButton = createActionButton(mContext, R.drawable.mute,
+                            LocaleController.getString("Mute", R.string.Mute), v -> onMuteClick());
+                    LinearLayout callButton = createActionButton(mContext, R.drawable.call,
+                            LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
+                    LinearLayout videoButton = createActionButton(mContext, R.drawable.video,
+                            LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
+
+                    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                    params.gravity = Gravity.CENTER;
+                    params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+
+                    actionButtonsLayout.addView(messageButton, params);
+                    actionButtonsLayout.addView(muteButton, params);
+                    actionButtonsLayout.addView(callButton, params);
+                    actionButtonsLayout.addView(videoButton, params);
+
+                    view = actionButtonsLayout;
+                    view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+                    break;
+                }
             }
             if (viewType != VIEW_TYPE_SHARED_MEDIA) {
                 view.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT,
@@ -13166,11 +13269,11 @@ private LinearLayout createActionButton(Context context, int iconRes, String lab
                                 ChannelMonetizationLayout.replaceTON(StarsIntroActivity.replaceStarsWithPlain(ssb, .7f),
                                         textCell.getTextView().getPaint()),
                                 R.drawable.menu_feature_paid, true);
-                            
-                            } else if (position == actionButtonsRow) {
-                                // Action buttons are handled in onCreateViewHolder
-                                break;
-                            } else if (position == botStarsBalanceRow) {
+
+                    } else if (position == actionButtonsRow) {
+                        // Action buttons are handled in onCreateViewHolder
+                        break;
+                    } else if (position == botStarsBalanceRow) {
                         final TL_stars.StarsAmount stars_balance = BotStarsController.getInstance(currentAccount)
                                 .getBotStarsBalance(userId);
                         SpannableStringBuilder ssb = new SpannableStringBuilder();
