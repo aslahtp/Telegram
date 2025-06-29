@@ -318,7 +318,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import org.telegram.ui.Components.voip.VoIPHelper;
-
+import org.telegram.ui.ProfileNotificationsActivity;
 public class ProfileActivity extends BaseFragment
         implements NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate,
         SharedMediaLayout.SharedMediaPreloaderDelegate, ImageUpdater.ImageUpdaterDelegate, SharedMediaLayout.Delegate {
@@ -6564,6 +6564,16 @@ public class ProfileActivity extends BaseFragment
             }
         }
     }
+
+    private void onMuteClick() {
+        // Example: open notification settings for this user
+        if (userId != 0) {
+            long did = userId;
+            Bundle args = new Bundle();
+            args.putLong("dialog_id", did);
+            presentFragment(new ProfileNotificationsActivity(args));
+        }
+    }
     
     private void onMessageClick() {
         if (userId != 0) {
@@ -12423,6 +12433,32 @@ public class ProfileActivity extends BaseFragment
         });
     }
 
+    // Add this inside ListAdapter, before onCreateViewHolder
+private LinearLayout createActionButton(Context context, int iconRes, String label, View.OnClickListener listener) {
+    LinearLayout layout = new LinearLayout(context);
+    layout.setOrientation(LinearLayout.VERTICAL);
+    layout.setGravity(Gravity.CENTER);
+    layout.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(64), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
+    layout.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8));
+
+    ImageView icon = new ImageView(context);
+    icon.setImageResource(iconRes);
+    icon.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
+    LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(32), AndroidUtilities.dp(32));
+    iconParams.gravity = Gravity.CENTER;
+    layout.addView(icon, iconParams);
+
+    TextView text = new TextView(context);
+    text.setText(label);
+    text.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
+    text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+    text.setGravity(Gravity.CENTER);
+    layout.addView(text, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+    layout.setOnClickListener(listener);
+    return layout;
+}
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
         private final static int VIEW_TYPE_HEADER = 1,
                 VIEW_TYPE_TEXT_DETAIL = 2,
@@ -12732,43 +12768,22 @@ public class ProfileActivity extends BaseFragment
                         actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
                         actionButtonsLayout.setGravity(Gravity.CENTER);
                         actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
-                        
-                        // Audio Call Button
-                        ImageView audioCallButton = new ImageView(mContext);
-                        audioCallButton.setImageResource(R.drawable.call);
-                        audioCallButton.setScaleType(ImageView.ScaleType.CENTER);
-                        audioCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
-                        audioCallButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
-                        audioCallButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
-                        audioCallButton.setOnClickListener(v -> onAudioCallClick());
-                        
-                        // Video Call Button
-                        ImageView videoCallButton = new ImageView(mContext);
-                        videoCallButton.setImageResource(R.drawable.video);
-                        videoCallButton.setScaleType(ImageView.ScaleType.CENTER);
-                        videoCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
-                        videoCallButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
-                        videoCallButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
-                        videoCallButton.setOnClickListener(v -> onVideoCallClick());
-                        
-                        // Message Button
-                        ImageView messageButton = new ImageView(mContext);
-                        messageButton.setImageResource(R.drawable.message);
-                        messageButton.setScaleType(ImageView.ScaleType.CENTER);
-                        messageButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
-                        messageButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
-                        messageButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
-                        messageButton.setOnClickListener(v -> onMessageClick());
-                        
-                        // Add buttons to layout with equal spacing
+                    
+                        // Use your actual icon resources here (replace with your own if needed)
+                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message, LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
+                        LinearLayout muteButton = createActionButton(mContext, R.drawable.mute, LocaleController.getString("Mute", R.string.Mute), v -> onMuteClick());
+                        LinearLayout callButton = createActionButton(mContext, R.drawable.call, LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
+                        LinearLayout videoButton = createActionButton(mContext, R.drawable.video, LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
+                    
                         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
                         params.gravity = Gravity.CENTER;
                         params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
-                        
-                        actionButtonsLayout.addView(audioCallButton, params);
-                        actionButtonsLayout.addView(videoCallButton, params);
+                    
                         actionButtonsLayout.addView(messageButton, params);
-                        
+                        actionButtonsLayout.addView(muteButton, params);
+                        actionButtonsLayout.addView(callButton, params);
+                        actionButtonsLayout.addView(videoButton, params);
+                    
                         view = actionButtonsLayout;
                         view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
                         break;
