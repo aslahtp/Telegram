@@ -317,6 +317,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.telegram.ui.Components.voip.VoIPHelper;
+
 public class ProfileActivity extends BaseFragment
         implements NotificationCenter.NotificationCenterDelegate, DialogsActivity.DialogsActivityDelegate,
         SharedMediaLayout.SharedMediaPreloaderDelegate, ImageUpdater.ImageUpdaterDelegate, SharedMediaLayout.Delegate {
@@ -668,6 +670,8 @@ public class ProfileActivity extends BaseFragment
     private int unblockRow;
     private int joinRow;
     private int lastSectionRow;
+
+    private int actionButtonsRow;
 
     private boolean hoursExpanded;
     private boolean hoursShownMine;
@@ -6541,6 +6545,41 @@ public class ProfileActivity extends BaseFragment
         }
     }
 
+    private void onAudioCallClick() {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && !UserObject.isUserSelf(user)) {
+                TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
+                VoIPHelper.startCall(user, false, userFull != null && userFull.video_calls_available, getParentActivity(), userFull, getAccountInstance());
+            }
+        }
+    }
+    
+    private void onVideoCallClick() {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && !UserObject.isUserSelf(user)) {
+                TLRPC.UserFull userFull = getMessagesController().getUserFull(userId);
+                VoIPHelper.startCall(user, true, userFull != null && userFull.video_calls_available, getParentActivity(), userFull, getAccountInstance());
+            }
+        }
+    }
+    
+    private void onMessageClick() {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && !UserObject.isUserSelf(user)) {
+                Bundle args = new Bundle();
+                args.putLong("user_id", userId);
+                if (!getMessagesController().checkCanOpenChat(args, ProfileActivity.this)) {
+                    return;
+                }
+                ChatActivity chatActivity = new ChatActivity(args);
+                presentFragment(chatActivity);
+            }
+        }
+    }
+
     private void onWriteButtonClick() {
         if (userId != 0) {
             if (imageUpdater != null) {
@@ -9829,6 +9868,7 @@ public class ProfileActivity extends BaseFragment
         botPermissionEmojiStatus = -1;
         botPermissionLocation = -1;
         botPermissionsDivider = -1;
+        actionButtonsRow = -1;
 
         sendMessageRow = -1;
         reportRow = -1;
@@ -10051,6 +10091,10 @@ public class ProfileActivity extends BaseFragment
                 infoEndRow = rowCount - 1;
                 infoSectionRow = rowCount++;
 
+                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
+                    actionButtonsRow = rowCount++;
+                }
+
                 if (isBot && userInfo != null && userInfo.starref_program != null
                         && (userInfo.starref_program.flags & 2) == 0 && getMessagesController().starrefConnectAllowed) {
                     affiliateRow = rowCount++;
@@ -10138,6 +10182,7 @@ public class ProfileActivity extends BaseFragment
                     reportRow = rowCount++;
                     lastSectionRow = rowCount++;
                 }
+                
             }
         } else if (isTopic) {
             infoHeaderRow = rowCount++;
@@ -12402,7 +12447,8 @@ public class ProfileActivity extends BaseFragment
                 VIEW_TYPE_STARS_TEXT_CELL = 24,
                 VIEW_TYPE_BOT_APP = 25,
                 VIEW_TYPE_SHADOW_TEXT = 26,
-                VIEW_TYPE_COLORFUL_TEXT = 27;
+                VIEW_TYPE_COLORFUL_TEXT = 27,
+                VIEW_TYPE_ACTION_BUTTONS = 28;
 
         private Context mContext;
 
@@ -12681,6 +12727,52 @@ public class ProfileActivity extends BaseFragment
                     view = frameLayout;
                     view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
                     break;
+                    case VIEW_TYPE_ACTION_BUTTONS: {
+                        LinearLayout actionButtonsLayout = new LinearLayout(mContext);
+                        actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
+                        actionButtonsLayout.setGravity(Gravity.CENTER);
+                        actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12), AndroidUtilities.dp(16), AndroidUtilities.dp(12));
+                        
+                        // Audio Call Button
+                        ImageView audioCallButton = new ImageView(mContext);
+                        audioCallButton.setImageResource(R.drawable.call);
+                        audioCallButton.setScaleType(ImageView.ScaleType.CENTER);
+                        audioCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
+                        audioCallButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
+                        audioCallButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
+                        audioCallButton.setOnClickListener(v -> onAudioCallClick());
+                        
+                        // Video Call Button
+                        ImageView videoCallButton = new ImageView(mContext);
+                        videoCallButton.setImageResource(R.drawable.video);
+                        videoCallButton.setScaleType(ImageView.ScaleType.CENTER);
+                        videoCallButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
+                        videoCallButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
+                        videoCallButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
+                        videoCallButton.setOnClickListener(v -> onVideoCallClick());
+                        
+                        // Message Button
+                        ImageView messageButton = new ImageView(mContext);
+                        messageButton.setImageResource(R.drawable.message);
+                        messageButton.setScaleType(ImageView.ScaleType.CENTER);
+                        messageButton.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16), AndroidUtilities.dp(16));
+                        messageButton.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(48), getThemedColor(Theme.key_profile_actionBackground), getThemedColor(Theme.key_profile_actionPressedBackground)));
+                        messageButton.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
+                        messageButton.setOnClickListener(v -> onMessageClick());
+                        
+                        // Add buttons to layout with equal spacing
+                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                        params.gravity = Gravity.CENTER;
+                        params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+                        
+                        actionButtonsLayout.addView(audioCallButton, params);
+                        actionButtonsLayout.addView(videoCallButton, params);
+                        actionButtonsLayout.addView(messageButton, params);
+                        
+                        view = actionButtonsLayout;
+                        view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+                        break;
+                    }
             }
             if (viewType != VIEW_TYPE_SHARED_MEDIA) {
                 view.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT,
@@ -13059,7 +13151,11 @@ public class ProfileActivity extends BaseFragment
                                 ChannelMonetizationLayout.replaceTON(StarsIntroActivity.replaceStarsWithPlain(ssb, .7f),
                                         textCell.getTextView().getPaint()),
                                 R.drawable.menu_feature_paid, true);
-                    } else if (position == botStarsBalanceRow) {
+                            
+                            } else if (position == actionButtonsRow) {
+                                // Action buttons are handled in onCreateViewHolder
+                                break;
+                            } else if (position == botStarsBalanceRow) {
                         final TL_stars.StarsAmount stars_balance = BotStarsController.getInstance(currentAccount)
                                 .getBotStarsBalance(userId);
                         SpannableStringBuilder ssb = new SpannableStringBuilder();
@@ -13675,6 +13771,9 @@ public class ProfileActivity extends BaseFragment
 
         @Override
         public int getItemViewType(int position) {
+            if (position == actionButtonsRow) {
+                return VIEW_TYPE_ACTION_BUTTONS;
+            }
             if (position == infoHeaderRow || position == membersHeaderRow || position == settingsSectionRow2 ||
                     position == numberSectionRow || position == helpHeaderRow || position == debugHeaderRow
                     || position == botPermissionsHeader) {
@@ -15413,6 +15512,7 @@ public class ProfileActivity extends BaseFragment
             put(++pointer, setAvatarSectionRow, sparseIntArray);
             put(++pointer, numberSectionRow, sparseIntArray);
             put(++pointer, numberRow, sparseIntArray);
+            put(++pointer, actionButtonsRow, sparseIntArray);
             put(++pointer, setUsernameRow, sparseIntArray);
             put(++pointer, bioRow, sparseIntArray);
             put(++pointer, phoneSuggestionRow, sparseIntArray);
