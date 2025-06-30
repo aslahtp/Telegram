@@ -5692,6 +5692,7 @@ public class ProfileActivity extends BaseFragment
             onWriteButtonClick();
         });
         needLayout(false);
+        writeButton.setVisibility(View.GONE);
 
         if (scrollTo != -1) {
             if (writeButtonTag != null) {
@@ -10159,8 +10160,14 @@ public class ProfileActivity extends BaseFragment
                         channelDividerRow = rowCount++;
                     }
                 }
+
+                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
+                    actionButtonsRow = rowCount++;
+                }
+
                 infoStartRow = rowCount;
                 infoHeaderRow = rowCount++;
+
                 if (!isBot && (hasPhone || !hasInfo)) {
                     phoneRow = rowCount++;
                 }
@@ -10194,9 +10201,7 @@ public class ProfileActivity extends BaseFragment
                 infoEndRow = rowCount - 1;
                 infoSectionRow = rowCount++;
 
-                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
-                    actionButtonsRow = rowCount++;
-                }
+                
 
                 if (isBot && userInfo != null && userInfo.starref_program != null
                         && (userInfo.starref_program.flags & 2) == 0 && getMessagesController().starrefConnectAllowed) {
