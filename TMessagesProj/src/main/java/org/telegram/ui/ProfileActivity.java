@@ -673,6 +673,7 @@ public class ProfileActivity extends BaseFragment
     private int lastSectionRow;
 
     private int actionButtonsRow;
+    private LinearLayout actionButtonsLayout; // Reference to action buttons layout for dynamic background
 
     private boolean hoursExpanded;
     private boolean hoursShownMine;
@@ -6274,6 +6275,7 @@ public class ProfileActivity extends BaseFragment
         avatarContainer.requestLayout();
 
         updateCollectibleHint();
+        updateActionButtonsBackground(); // Update action buttons background when expansion changes
     }
 
     private int getSmallAvatarRoundRadius() {
@@ -8174,6 +8176,7 @@ public class ProfileActivity extends BaseFragment
                         / (listView.getMeasuredWidth() - newTop - AndroidUtilities.dp(88f))));
                 avatarScale = AndroidUtilities.lerp((42f + 18f) / 42f, (42f + 42f + 18f) / 42f,
                         Math.min(1f, expandProgress * 3f));
+                updateActionButtonsBackground(); // Update action buttons background when expandProgress changes
                 if (storyView != null) {
                     storyView.invalidate();
                 }
@@ -10200,8 +10203,6 @@ public class ProfileActivity extends BaseFragment
                 }
                 infoEndRow = rowCount - 1;
                 infoSectionRow = rowCount++;
-
-                
 
                 if (isBot && userInfo != null && userInfo.starref_program != null
                         && (userInfo.starref_program.flags & 2) == 0 && getMessagesController().starrefConnectAllowed) {
@@ -12531,6 +12532,74 @@ public class ProfileActivity extends BaseFragment
         });
     }
 
+    // Method to draw dynamic background for action buttons
+    private void drawActionButtonsBackground(Canvas canvas, View view) {
+        int width = view.getWidth();
+        int height = view.getHeight();
+
+        // Calculate the progress of profile expansion
+        // When expandProgress is close to 1.0, profile is fully expanded
+        // When expandProgress is close to 0.0, profile is minimized
+        float progress = Math.min(1f, Math.max(0f, expandProgress));
+
+        if (progress > 0.5f) {
+            // Profile is expanded - use blurred profile picture background
+            drawBlurredProfileBackground(canvas, width, height, progress);
+        } else {
+            // Profile is minimized - use action bar background color
+            drawActionBarBackground(canvas, width, height, 1f - progress * 2f);
+        }
+    }
+
+    private void drawBlurredProfileBackground(Canvas canvas, int width, int height, float alpha) {
+        // Get the current profile image
+        if (avatarImage != null && avatarImage.getImageReceiver() != null) {
+            Drawable drawable = avatarImage.getImageReceiver().getDrawable();
+            if (drawable instanceof BitmapDrawable) {
+                Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
+                if (bitmap != null && !bitmap.isRecycled()) {
+                    // Create a blurred version of the profile picture
+                    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    paint.setAlpha((int) (alpha * 255 * 0.3f)); // 30% opacity for subtle effect
+
+                    // Draw stretched and blurred bitmap as background
+                    Rect srcRect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+                    Rect dstRect = new Rect(0, 0, width, height);
+                    canvas.drawBitmap(bitmap, srcRect, dstRect, paint);
+
+                    // Add a semi-transparent overlay for better readability
+                    paint.setColor(Color.WHITE);
+                    paint.setAlpha((int) (alpha * 255 * 0.7f)); // 70% white overlay
+                    canvas.drawRect(0, 0, width, height, paint);
+                    return;
+                }
+            }
+        }
+
+        // Fallback to white background if no profile image available
+        Paint paint = new Paint();
+        paint.setColor(getThemedColor(Theme.key_windowBackgroundWhite));
+        canvas.drawRect(0, 0, width, height, paint);
+    }
+
+    private void drawActionBarBackground(Canvas canvas, int width, int height, float alpha) {
+        // Use the action bar background color
+        Paint paint = new Paint();
+        int backgroundColor = ColorUtils.blendARGB(
+                getThemedColor(Theme.key_windowBackgroundWhite),
+                actionBarBackgroundColor,
+                alpha);
+        paint.setColor(backgroundColor);
+        canvas.drawRect(0, 0, width, height, paint);
+    }
+
+    // Method to update action buttons background when expansion state changes
+    private void updateActionButtonsBackground() {
+        if (actionButtonsLayout != null) {
+            actionButtonsLayout.invalidate();
+        }
+    }
+
     // Add this inside ListAdapter, before onCreateViewHolder
     private LinearLayout createActionButton(Context context, int iconRes, String label, View.OnClickListener listener) {
         LinearLayout layout = new LinearLayout(context);
@@ -12866,11 +12935,19 @@ public class ProfileActivity extends BaseFragment
                     view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
                     break;
                 case VIEW_TYPE_ACTION_BUTTONS: {
-                    LinearLayout actionButtonsLayout = new LinearLayout(mContext);
+                    actionButtonsLayout = new LinearLayout(mContext) {
+                        @Override
+                        protected void onDraw(Canvas canvas) {
+                            // Custom drawing for dynamic background
+                            drawActionButtonsBackground(canvas, this);
+                            super.onDraw(canvas);
+                        }
+                    };
                     actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
                     actionButtonsLayout.setGravity(Gravity.CENTER);
                     actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12),
                             AndroidUtilities.dp(16), AndroidUtilities.dp(12));
+                    actionButtonsLayout.setWillNotDraw(false); // Enable custom drawing
 
                     // Use your actual icon resources here (replace with your own if needed)
                     LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
@@ -12893,7 +12970,7 @@ public class ProfileActivity extends BaseFragment
                     actionButtonsLayout.addView(videoButton, params);
 
                     view = actionButtonsLayout;
-                    view.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+                    // Remove static background color, will be handled by custom drawing
                     break;
                 }
             }
