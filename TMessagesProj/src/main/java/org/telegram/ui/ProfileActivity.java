@@ -10119,7 +10119,11 @@ public class ProfileActivity extends BaseFragment
                 if (getMessagesController().starsPurchaseAvailable()) {
                     starsRow = rowCount++;
                 }
-                if (ApplicationLoader.isBetaBuild() || ApplicationLoader.isStandaloneBuild() || ApplicationLoader.isHuaweiStoreBuild() || (StarsController.getInstance(currentAccount, true).balanceAvailable() && (StarsController.getInstance(currentAccount, true).hasTransactions() || StarsController.getInstance(currentAccount, true).getBalance().positive()))) {
+                if (ApplicationLoader.isBetaBuild() || ApplicationLoader.isStandaloneBuild()
+                        || ApplicationLoader.isHuaweiStoreBuild()
+                        || (StarsController.getInstance(currentAccount, true).balanceAvailable() && (StarsController
+                                .getInstance(currentAccount, true).hasTransactions()
+                                || StarsController.getInstance(currentAccount, true).getBalance().positive()))) {
                     tonRow = rowCount++;
                 }
                 if (!getMessagesController().premiumFeaturesBlocked()) {
@@ -12597,6 +12601,48 @@ public class ProfileActivity extends BaseFragment
     private void updateActionButtonsBackground() {
         if (actionButtonsLayout != null) {
             actionButtonsLayout.invalidate();
+
+            // Update individual button backgrounds
+            for (int i = 0; i < actionButtonsLayout.getChildCount(); i++) {
+                View child = actionButtonsLayout.getChildAt(i);
+                if (child instanceof LinearLayout) {
+                    LinearLayout button = (LinearLayout) child;
+                    int normalColor = getDarkerBackgroundColor();
+                    int pressedColor = ColorUtils.blendARGB(normalColor, Color.BLACK, 0.1f);
+                    button.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12),
+                            normalColor, pressedColor));
+                }
+            }
+
+            // Update padding based on expansion progress
+            updateActionButtonsPadding();
+        }
+    }
+
+    // Method to update action buttons padding based on expansion state
+    private void updateActionButtonsPadding() {
+        if (actionButtonsLayout != null) {
+            float progress = Math.min(1f, Math.max(0f, expandProgress));
+
+            // Calculate padding based on expansion progress
+            // When expanded (progress > 0.5f): use normal padding
+            // When minimized (progress <= 0.5f): reduce or remove horizontal padding
+            int horizontalPadding, verticalPadding;
+
+            if (progress > 0.5f) {
+                // Expanded state - normal padding
+                horizontalPadding = AndroidUtilities.dp(16);
+                verticalPadding = AndroidUtilities.dp(12);
+            } else {
+                // Minimized state - reduce padding when blending with action bar
+                // Smoothly transition from 16dp to 4dp for horizontal padding
+                float paddingProgress = 1f - (progress * 2f); // 0 to 1 as progress goes from 0.5 to 0
+                horizontalPadding = (int) AndroidUtilities.lerp(AndroidUtilities.dp(16), AndroidUtilities.dp(4),
+                        paddingProgress);
+                verticalPadding = AndroidUtilities.dp(12);
+            }
+
+            actionButtonsLayout.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding);
         }
     }
 
@@ -12605,29 +12651,58 @@ public class ProfileActivity extends BaseFragment
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(Gravity.CENTER);
-        layout.setBackground(Theme.createSimpleSelectorCircleDrawable(AndroidUtilities.dp(64),
-                getThemedColor(Theme.key_profile_actionBackground),
-                getThemedColor(Theme.key_profile_actionPressedBackground)));
-        layout.setPadding(0, AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8));
+
+        // Create rounded rectangular background that's darker than the layout
+        // background
+        int normalColor = getDarkerBackgroundColor();
+        int pressedColor = ColorUtils.blendARGB(normalColor, Color.BLACK, 0.1f);
+
+        layout.setBackground(Theme.createSimpleSelectorRoundRectDrawable(AndroidUtilities.dp(12),
+                normalColor, pressedColor));
+        layout.setPadding(AndroidUtilities.dp(8), AndroidUtilities.dp(8), AndroidUtilities.dp(8),
+                AndroidUtilities.dp(8));
 
         ImageView icon = new ImageView(context);
         icon.setImageResource(iconRes);
-        icon.setColorFilter(getThemedColor(Theme.key_profile_actionIcon), PorterDuff.Mode.MULTIPLY);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(32),
-                AndroidUtilities.dp(32));
+        icon.setColorFilter(Color.WHITE, PorterDuff.Mode.MULTIPLY);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(AndroidUtilities.dp(24),
+                AndroidUtilities.dp(24));
         iconParams.gravity = Gravity.CENTER;
+        iconParams.bottomMargin = AndroidUtilities.dp(2);
         layout.addView(icon, iconParams);
 
         TextView text = new TextView(context);
         text.setText(label);
-        text.setTextColor(getThemedColor(Theme.key_windowBackgroundWhiteBlackText));
-        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        text.setTextColor(Color.WHITE);
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         text.setGravity(Gravity.CENTER);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setMaxLines(1);
+        text.setEllipsize(TextUtils.TruncateAt.END);
         layout.addView(text, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         layout.setOnClickListener(listener);
         return layout;
+    }
+
+    // Method to get darker background color for action buttons
+    private int getDarkerBackgroundColor() {
+        // Calculate the progress of profile expansion
+        float progress = Math.min(1f, Math.max(0f, expandProgress));
+
+        if (progress > 0.5f) {
+            // When expanded, use a semi-transparent dark overlay (reduced opacity)
+            return ColorUtils.setAlphaComponent(Color.BLACK, 80); // 31% opacity black (less dark)
+        } else {
+            // When minimized, use a slightly darker version of the action bar background
+            int baseColor = ColorUtils.blendARGB(
+                    getThemedColor(Theme.key_windowBackgroundWhite),
+                    actionBarBackgroundColor,
+                    1f - progress * 2f);
+            // Make it slightly darker by blending with black (reduced from 0.3f to 0.15f)
+            return ColorUtils.blendARGB(baseColor, Color.BLACK, 0.10f);
+        }
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
@@ -12942,6 +13017,13 @@ public class ProfileActivity extends BaseFragment
                             drawActionButtonsBackground(canvas, this);
                             super.onDraw(canvas);
                         }
+
+                        @Override
+                        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                            super.onLayout(changed, l, t, r, b);
+                            // Update padding based on expansion progress
+                            updateActionButtonsPadding();
+                        }
                     };
                     actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
                     actionButtonsLayout.setGravity(Gravity.CENTER);
@@ -12960,9 +13042,9 @@ public class ProfileActivity extends BaseFragment
                             LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
 
                     LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                            AndroidUtilities.dp(68), 1.0f);
                     params.gravity = Gravity.CENTER;
-                    params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+                    params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
 
                     actionButtonsLayout.addView(messageButton, params);
                     actionButtonsLayout.addView(muteButton, params);
