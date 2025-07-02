@@ -674,6 +674,8 @@ public class ProfileActivity extends BaseFragment
 
     private int actionButtonsRow;
     private LinearLayout actionButtonsLayout; // Reference to action buttons layout for dynamic background
+    private Bitmap cachedBlurredBackground; // Cache for blurred background
+    private Bitmap lastProfileBitmap; // Reference to last profile bitmap used for caching
 
     private boolean hoursExpanded;
     private boolean hoursShownMine;
@@ -2152,6 +2154,7 @@ public class ProfileActivity extends BaseFragment
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        cleanupBlurredBackgroundCache(); // Clean up cached blurred background
         if (sharedMediaLayout != null) {
             sharedMediaLayout.onDestroy();
         }
@@ -12562,28 +12565,128 @@ public class ProfileActivity extends BaseFragment
             if (drawable instanceof BitmapDrawable) {
                 Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
                 if (bitmap != null && !bitmap.isRecycled()) {
-                    // Create a blurred version of the profile picture
-                    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-                    paint.setAlpha((int) (alpha * 255 * 0.3f)); // 30% opacity for subtle effect
+                    try {
+                        // Check if we need to create a new blurred bitmap
+                        if (cachedBlurredBackground == null || lastProfileBitmap != bitmap) {
+                            // Clean up old cached bitmap
+                            if (cachedBlurredBackground != null) {
+                                cachedBlurredBackground.recycle();
+                            }
 
-                    // Draw stretched and blurred bitmap as background
+                            // Create a scaled down version for better performance
+                            int scaledWidth = Math.min(bitmap.getWidth(), 100);
+                            int scaledHeight = Math.min(bitmap.getHeight(), 100);
+                            Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true);
+
+                            // Apply blur effect and cache it
+                            cachedBlurredBackground = applyBlur(scaledBitmap, 25);
+                            lastProfileBitmap = bitmap;
+
+                            // Clean up scaled bitmap
+                            if (scaledBitmap != bitmap) {
+                                scaledBitmap.recycle();
+                            }
+                        }
+
+                        // Draw the cached blurred bitmap stretched to fill the area
+                        if (cachedBlurredBackground != null && !cachedBlurredBackground.isRecycled()) {
+                            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                            paint.setAlpha(255); // Full opacity for the blurred background
+
+                            Rect srcRect = new Rect(0, 0, cachedBlurredBackground.getWidth(),
+                                    cachedBlurredBackground.getHeight());
+                            Rect dstRect = new Rect(0, 0, width, height);
+                            canvas.drawBitmap(cachedBlurredBackground, srcRect, dstRect, paint);
+                            return;
+                        }
+                    } catch (Exception e) {
+                        // Fall through to simple stretch if blur fails
+                    }
+
+                    // Fallback: simple stretched image without blur
+                    Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    paint.setAlpha((int) (255 * 0.8f)); // High opacity
+
                     Rect srcRect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
                     Rect dstRect = new Rect(0, 0, width, height);
                     canvas.drawBitmap(bitmap, srcRect, dstRect, paint);
-
-                    // Add a semi-transparent overlay for better readability
-                    paint.setColor(Color.WHITE);
-                    paint.setAlpha((int) (alpha * 255 * 0.7f)); // 70% white overlay
-                    canvas.drawRect(0, 0, width, height, paint);
                     return;
                 }
             }
         }
 
-        // Fallback to white background if no profile image available
-        Paint paint = new Paint();
-        paint.setColor(getThemedColor(Theme.key_windowBackgroundWhite));
-        canvas.drawRect(0, 0, width, height, paint);
+        // Fallback to transparent background if no profile image available
+        canvas.drawColor(Color.TRANSPARENT);
+    }
+
+    // Simple box blur implementation for creating blurred background
+    private Bitmap applyBlur(Bitmap bitmap, int radius) {
+        if (bitmap == null || bitmap.isRecycled()) {
+            return bitmap;
+        }
+
+        Bitmap result = bitmap.copy(bitmap.getConfig(), true);
+
+        if (radius < 1) {
+            return result;
+        }
+
+        int w = result.getWidth();
+        int h = result.getHeight();
+        int[] pixels = new int[w * h];
+        result.getPixels(pixels, 0, w, 0, 0, w, h);
+
+        // Horizontal blur
+        for (int row = 0; row < h; row++) {
+            for (int col = 0; col < w; col++) {
+                int pixel = col + row * w;
+                int r = 0, g = 0, b = 0, a = 0;
+                int count = 0;
+
+                for (int i = Math.max(0, col - radius); i <= Math.min(w - 1, col + radius); i++) {
+                    int currentPixel = pixels[i + row * w];
+                    a += (currentPixel >> 24) & 0xff;
+                    r += (currentPixel >> 16) & 0xff;
+                    g += (currentPixel >> 8) & 0xff;
+                    b += currentPixel & 0xff;
+                    count++;
+                }
+
+                pixels[pixel] = (a / count << 24) | (r / count << 16) | (g / count << 8) | (b / count);
+            }
+        }
+
+        // Vertical blur
+        for (int col = 0; col < w; col++) {
+            for (int row = 0; row < h; row++) {
+                int pixel = col + row * w;
+                int r = 0, g = 0, b = 0, a = 0;
+                int count = 0;
+
+                for (int i = Math.max(0, row - radius); i <= Math.min(h - 1, row + radius); i++) {
+                    int currentPixel = pixels[col + i * w];
+                    a += (currentPixel >> 24) & 0xff;
+                    r += (currentPixel >> 16) & 0xff;
+                    g += (currentPixel >> 8) & 0xff;
+                    b += currentPixel & 0xff;
+                    count++;
+                }
+
+                pixels[pixel] = (a / count << 24) | (r / count << 16) | (g / count << 8) | (b / count);
+            }
+        }
+
+        result.setPixels(pixels, 0, w, 0, 0, w, h);
+        return result;
+    }
+
+    // Clean up cached blurred background
+    private void cleanupBlurredBackgroundCache() {
+        if (cachedBlurredBackground != null) {
+            cachedBlurredBackground.recycle();
+            cachedBlurredBackground = null;
+        }
+        lastProfileBitmap = null;
     }
 
     private void drawActionBarBackground(Canvas canvas, int width, int height, float alpha) {
@@ -12692,15 +12795,18 @@ public class ProfileActivity extends BaseFragment
         float progress = Math.min(1f, Math.max(0f, expandProgress));
 
         if (progress > 0.5f) {
-            // When expanded, use a semi-transparent dark overlay (reduced opacity)
-            return ColorUtils.setAlphaComponent(Color.BLACK, 80); // 31% opacity black (less dark)
+            // When expanded, use a more transparent dark overlay to let blurred background
+            // show through
+            int alpha = (int) (60 * (progress - 0.5f) * 2f); // Gradually increase opacity from 0 to 60 as expansion
+                                                             // increases
+            return ColorUtils.setAlphaComponent(Color.BLACK, Math.max(40, alpha)); // Minimum 40, maximum 60 opacity
         } else {
             // When minimized, use a slightly darker version of the action bar background
             int baseColor = ColorUtils.blendARGB(
                     getThemedColor(Theme.key_windowBackgroundWhite),
                     actionBarBackgroundColor,
                     1f - progress * 2f);
-            // Make it slightly darker by blending with black (reduced from 0.3f to 0.15f)
+            // Make it slightly darker by blending with black
             return ColorUtils.blendARGB(baseColor, Color.BLACK, 0.10f);
         }
     }
@@ -13030,6 +13136,7 @@ public class ProfileActivity extends BaseFragment
                     actionButtonsLayout.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(12),
                             AndroidUtilities.dp(16), AndroidUtilities.dp(12));
                     actionButtonsLayout.setWillNotDraw(false); // Enable custom drawing
+                    actionButtonsLayout.setBackgroundColor(Color.TRANSPARENT); // Ensure no default background
 
                     // Use your actual icon resources here (replace with your own if needed)
                     LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
