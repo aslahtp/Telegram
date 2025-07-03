@@ -1788,6 +1788,10 @@ public class ProfileActivity extends BaseFragment
 
                 @Override
                 public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
+                    // Update action buttons background during scroll for smooth transitions
+                    if (positionOffset != 0) {
+                        updateActionButtonsBackground();
+                    }
                 }
 
                 @Override
@@ -1795,6 +1799,9 @@ public class ProfileActivity extends BaseFragment
                     int realPosition = avatarsViewPager.getRealPosition(position);
                     invalidateIndicatorRect(prevPage != realPosition);
                     prevPage = realPosition;
+                    // Clear cached blurred background when switching between profile images
+                    cleanupBlurredBackgroundCache();
+                    updateActionButtonsBackground();
                     updateAvatarItems();
                 }
 
@@ -12559,9 +12566,28 @@ public class ProfileActivity extends BaseFragment
     }
 
     private void drawBlurredProfileBackground(Canvas canvas, int width, int height, float alpha) {
-        // Get the current profile image
-        if (avatarImage != null && avatarImage.getImageReceiver() != null) {
-            Drawable drawable = avatarImage.getImageReceiver().getDrawable();
+        // Get the current profile image - use avatarsViewPager if multiple images are
+        // visible
+        ImageReceiver currentImageReceiver = null;
+
+        // Check if avatarsViewPager is visible and has multiple images
+        if (avatarsViewPager != null && avatarsViewPager.getVisibility() == View.VISIBLE
+                && avatarsViewPager.getRealCount() > 1) {
+            // Use the currently displayed image from the view pager
+            BackupImageView currentItemView = avatarsViewPager.getCurrentItemView();
+            if (currentItemView != null) {
+                currentImageReceiver = currentItemView.getImageReceiver();
+            }
+        }
+
+        // Fallback to main avatar image if view pager is not available or doesn't have
+        // current item
+        if (currentImageReceiver == null && avatarImage != null) {
+            currentImageReceiver = avatarImage.getImageReceiver();
+        }
+
+        if (currentImageReceiver != null) {
+            Drawable drawable = currentImageReceiver.getDrawable();
             if (drawable instanceof BitmapDrawable) {
                 Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
                 if (bitmap != null && !bitmap.isRecycled()) {
