@@ -676,6 +676,7 @@ public class ProfileActivity extends BaseFragment
     private LinearLayout actionButtonsLayout; // Reference to action buttons layout for dynamic background
     private Bitmap cachedBlurredBackground; // Cache for blurred background
     private Bitmap lastProfileBitmap; // Reference to last profile bitmap used for caching
+    private int lastBlurRadius = -1; // Track last blur radius for caching
 
     private boolean hoursExpanded;
     private boolean hoursShownMine;
@@ -12592,24 +12593,39 @@ public class ProfileActivity extends BaseFragment
                 Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
                 if (bitmap != null && !bitmap.isRecycled()) {
                     try {
+                        // Calculate dynamic blur radius based on expansion progress
+                        float progress = Math.min(1f, Math.max(0f, expandProgress));
+                        int blurRadius = calculateBlurRadius(progress);
+
                         // Check if we need to create a new blurred bitmap
-                        if (cachedBlurredBackground == null || lastProfileBitmap != bitmap) {
+                        // Also check if blur radius changed significantly
+                        // Note: We use bottom 10% of profile picture for natural transition
+                        if (cachedBlurredBackground == null || lastProfileBitmap != bitmap ||
+                                Math.abs(lastBlurRadius - blurRadius) > 2) {
                             // Clean up old cached bitmap
                             if (cachedBlurredBackground != null) {
                                 cachedBlurredBackground.recycle();
                             }
 
+                            // Extract bottom 10% of the profile picture for action buttons background
+                            Bitmap croppedBitmap = extractBottom10Percent(bitmap);
+
                             // Create a scaled down version for better performance
-                            int scaledWidth = Math.min(bitmap.getWidth(), 100);
-                            int scaledHeight = Math.min(bitmap.getHeight(), 100);
-                            Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true);
+                            int scaledWidth = Math.min(croppedBitmap.getWidth(), 100);
+                            int scaledHeight = Math.min(croppedBitmap.getHeight(), 100);
+                            Bitmap scaledBitmap = Bitmap.createScaledBitmap(croppedBitmap, scaledWidth, scaledHeight,
+                                    true);
 
-                            // Apply blur effect and cache it
-                            cachedBlurredBackground = applyBlur(scaledBitmap, 25);
+                            // Apply blur effect with dynamic radius and cache it
+                            cachedBlurredBackground = applyBlur(scaledBitmap, blurRadius);
                             lastProfileBitmap = bitmap;
+                            lastBlurRadius = blurRadius;
 
-                            // Clean up scaled bitmap
-                            if (scaledBitmap != bitmap) {
+                            // Clean up temporary bitmaps
+                            if (croppedBitmap != bitmap) {
+                                croppedBitmap.recycle();
+                            }
+                            if (scaledBitmap != croppedBitmap) {
                                 scaledBitmap.recycle();
                             }
                         }
@@ -12630,12 +12646,19 @@ public class ProfileActivity extends BaseFragment
                     }
 
                     // Fallback: simple stretched image without blur
+                    // Also extract bottom 10% for consistency
+                    Bitmap croppedBitmap = extractBottom10Percent(bitmap);
                     Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
                     paint.setAlpha((int) (255 * 0.8f)); // High opacity
 
-                    Rect srcRect = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
+                    Rect srcRect = new Rect(0, 0, croppedBitmap.getWidth(), croppedBitmap.getHeight());
                     Rect dstRect = new Rect(0, 0, width, height);
-                    canvas.drawBitmap(bitmap, srcRect, dstRect, paint);
+                    canvas.drawBitmap(croppedBitmap, srcRect, dstRect, paint);
+
+                    // Clean up cropped bitmap if it's different from original
+                    if (croppedBitmap != bitmap) {
+                        croppedBitmap.recycle();
+                    }
                     return;
                 }
             }
@@ -12643,6 +12666,55 @@ public class ProfileActivity extends BaseFragment
 
         // Fallback to transparent background if no profile image available
         canvas.drawColor(Color.TRANSPARENT);
+    }
+
+    // Calculate blur radius based on expansion progress
+    private int calculateBlurRadius(float progress) {
+        // When fully expanded (progress = 1.0): use minimal blur (radius = 8)
+        // When fully collapsed (progress = 0.0): use maximum blur (radius = 25)
+        // Smooth interpolation between these values
+        int minBlurRadius = 8; // Less blur when expanded
+        int maxBlurRadius = 25; // More blur when collapsed
+
+        // Use smooth interpolation - when expanded, reduce blur significantly
+        float blurProgress = 1.0f - progress; // Invert progress so 1.0 = more blur, 0.0 = less blur
+
+        // Apply easing curve for more natural transition
+        blurProgress = (float) (1.0 - Math.pow(1.0 - blurProgress, 2.0)); // Ease out curve
+
+        return (int) (minBlurRadius + (maxBlurRadius - minBlurRadius) * blurProgress);
+    }
+
+    // Extract bottom 10% of the profile picture for action buttons background
+    private Bitmap extractBottom10Percent(Bitmap originalBitmap) {
+        if (originalBitmap == null || originalBitmap.isRecycled()) {
+            return originalBitmap;
+        }
+
+        int originalWidth = originalBitmap.getWidth();
+        int originalHeight = originalBitmap.getHeight();
+
+        // Calculate the height of 10% of the image
+        int cropHeight = Math.max(1, (int) (originalHeight * 0.1f));
+
+        // Calculate the starting Y position (bottom 10%)
+        int startY = originalHeight - cropHeight;
+
+        try {
+            // Create a bitmap from the bottom 10% of the original image
+            Bitmap croppedBitmap = Bitmap.createBitmap(
+                    originalBitmap,
+                    0, // x: start from left edge
+                    startY, // y: start from bottom 10%
+                    originalWidth, // width: full width
+                    cropHeight // height: 10% of original height
+            );
+
+            return croppedBitmap;
+        } catch (Exception e) {
+            // If cropping fails, return the original bitmap
+            return originalBitmap;
+        }
     }
 
     // Simple box blur implementation for creating blurred background
@@ -12713,6 +12785,7 @@ public class ProfileActivity extends BaseFragment
             cachedBlurredBackground = null;
         }
         lastProfileBitmap = null;
+        lastBlurRadius = -1;
     }
 
     private void drawActionBarBackground(Canvas canvas, int width, int height, float alpha) {
@@ -12745,6 +12818,18 @@ public class ProfileActivity extends BaseFragment
 
             // Update padding based on expansion progress
             updateActionButtonsPadding();
+
+            // Force blur update if expansion progress changed significantly
+            float progress = Math.min(1f, Math.max(0f, expandProgress));
+            int currentBlurRadius = calculateBlurRadius(progress);
+            if (Math.abs(lastBlurRadius - currentBlurRadius) > 1) {
+                // Clear cache to force blur regeneration with new radius
+                if (cachedBlurredBackground != null) {
+                    cachedBlurredBackground.recycle();
+                    cachedBlurredBackground = null;
+                }
+                lastBlurRadius = -1;
+            }
         }
     }
 
