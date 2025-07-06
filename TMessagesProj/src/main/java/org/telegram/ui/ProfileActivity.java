@@ -3626,8 +3626,10 @@ public class ProfileActivity extends BaseFragment
                 avatarContainer2.setPivotX(avatarContainer2.getMeasuredWidth() / 2f);
                 AndroidUtilities.updateViewVisibilityAnimated(avatarContainer2, !expanded, 0.95f, true);
 
-                callItem.setVisibility(expanded || !callItemVisible ? GONE : INVISIBLE);
-                videoCallItem.setVisibility(expanded || !videoCallItemVisible ? GONE : INVISIBLE);
+                // Hide small call/video icons when action buttons container is present
+                boolean hasActionButtons = actionButtonsRow != -1;
+                callItem.setVisibility(expanded || !callItemVisible || hasActionButtons ? GONE : INVISIBLE);
+                videoCallItem.setVisibility(expanded || !videoCallItemVisible || hasActionButtons ? GONE : INVISIBLE);
                 editItem.setVisibility(expanded || !editItemVisible ? GONE : INVISIBLE);
                 otherItem.setVisibility(expanded ? GONE : INVISIBLE);
                 if (qrItem != null) {
@@ -11818,7 +11820,10 @@ public class ProfileActivity extends BaseFragment
             otherItem.hideSubItem(delete_avatar);
         }
         if (!mediaHeaderVisible) {
-            if (callItemVisible) {
+            // Hide small call/video icons when action buttons container is present
+            boolean hasActionButtons = actionButtonsRow != -1;
+
+            if (callItemVisible && !hasActionButtons) {
                 if (callItem.getVisibility() != View.VISIBLE) {
                     callItem.setVisibility(View.VISIBLE);
                     if (animated) {
@@ -11831,7 +11836,7 @@ public class ProfileActivity extends BaseFragment
                     callItem.setVisibility(View.GONE);
                 }
             }
-            if (videoCallItemVisible) {
+            if (videoCallItemVisible && !hasActionButtons) {
                 if (videoCallItem.getVisibility() != View.VISIBLE) {
                     videoCallItem.setVisibility(View.VISIBLE);
                     if (animated) {
@@ -13303,7 +13308,7 @@ public class ProfileActivity extends BaseFragment
                     actionButtonsLayout.setWillNotDraw(false); // Enable custom drawing
                     actionButtonsLayout.setBackgroundColor(Color.TRANSPARENT); // Ensure no default background
 
-                    // Use your actual icon resources here (replace with your own if needed)
+                    // Use your actual icon resources here
                     LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
                             LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
 
