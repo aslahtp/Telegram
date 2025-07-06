@@ -6704,6 +6704,76 @@ public class ProfileActivity extends BaseFragment
         }
     }
 
+    private void onShareClick() {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && !UserObject.isUserSelf(user)) {
+                String link = "https://" + getMessagesController().linkPrefix + "/"
+                        + UserObject.getPublicUsername(user);
+                if (link != null && !link.equals("https://" + getMessagesController().linkPrefix + "/null")) {
+                    ShareAlert shareAlert = new ShareAlert(getParentActivity(), null, link, false, link, false) {
+                        @Override
+                        protected void onSend(LongSparseArray<TLRPC.Dialog> dids, int count, TLRPC.TL_forumTopic topic,
+                                boolean showToast) {
+                            if (!showToast)
+                                return;
+                            AndroidUtilities.runOnUIThread(() -> {
+                                BulletinFactory.createInviteSentBulletin(getParentActivity(), contentView, dids.size(),
+                                        dids.size() == 1 ? dids.valueAt(0).id : 0, count,
+                                        getThemedColor(Theme.key_undo_background),
+                                        getThemedColor(Theme.key_undo_infoColor))
+                                        .show();
+                            }, 250);
+                        }
+                    };
+                    showDialog(shareAlert);
+                } else {
+                    // Fallback for bots without usernames
+                    Bundle args = new Bundle();
+                    args.putLong("user_id", userId);
+                    args.putBoolean("share_contact", true);
+                    presentFragment(new ContactsActivity(args));
+                }
+            }
+        }
+    }
+
+    private void onStopBotClick() {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && user.bot) {
+                // Use the same logic as the "delete and block" event from the three dot menu
+                boolean userBlocked = getMessagesController().blockePeers.indexOfKey(userId) >= 0;
+
+                if (!userBlocked) {
+                    AlertsCreator.createClearOrDeleteDialogAlert(ProfileActivity.this, false, currentChat, user,
+                            currentEncryptedChat != null, true, true, (param) -> {
+                                if (getParentLayout() != null) {
+                                    List<BaseFragment> fragmentStack = getParentLayout().getFragmentStack();
+                                    BaseFragment prevFragment = fragmentStack == null
+                                            || fragmentStack.size() < 2 ? null
+                                                    : fragmentStack.get(fragmentStack.size() - 2);
+                                    if (prevFragment instanceof ChatActivity) {
+                                        getParentLayout().removeFragmentFromStack(fragmentStack.size() - 2);
+                                    }
+                                }
+                                finishFragment();
+                                getNotificationCenter().postNotificationName(
+                                        NotificationCenter.needDeleteDialog, dialogId, user, currentChat,
+                                        param);
+                            }, getResourceProvider());
+                } else {
+                    // If already blocked, unblock and send /start message
+                    getMessagesController().unblockPeer(userId,
+                            () -> getSendMessagesHelper()
+                                    .sendMessage(SendMessagesHelper.SendMessageParams.of("/start", userId, null,
+                                            null, null, false, null, null, null, true, 0, null, false)));
+                    finishFragment();
+                }
+            }
+        }
+    }
+
     private void onWriteButtonClick() {
         if (userId != 0) {
             if (imageUpdater != null) {
@@ -10176,7 +10246,7 @@ public class ProfileActivity extends BaseFragment
                         || user != null && !TextUtils.isEmpty(username);
                 boolean hasPhone = user != null && (!TextUtils.isEmpty(user.phone) || !TextUtils.isEmpty(vcardPhone));
 
-                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
+                if (userId != 0 && !UserObject.isUserSelf(user) && (!isBot || (isBot && user != null && user.bot))) {
                     actionButtonsRow = rowCount++;
                 }
 
@@ -13308,32 +13378,65 @@ public class ProfileActivity extends BaseFragment
                     actionButtonsLayout.setWillNotDraw(false); // Enable custom drawing
                     actionButtonsLayout.setBackgroundColor(Color.TRANSPARENT); // Ensure no default background
 
-                    // Use your actual icon resources here
-                    LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
-                            LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
+                    // Check if this is a bot profile
+                    TLRPC.User user = getMessagesController().getUser(userId);
+                    boolean isBotProfile = user != null && user.bot;
 
-                    // Check initial mute state to set correct icon and text
-                    boolean isInitiallyMuted = getMessagesController().isDialogMuted(dialogId, topicId);
-                    int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
-                    String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
-                            : LocaleController.getString("Mute", R.string.Mute);
+                    if (isBotProfile) {
+                        // Create bot-specific action buttons: message, mute, share, stop
+                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
+                                LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
 
-                    muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
+                        // Check initial mute state to set correct icon and text
+                        boolean isInitiallyMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                        int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                        String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                                : LocaleController.getString("Mute", R.string.Mute);
 
-                    LinearLayout callButton = createActionButton(mContext, R.drawable.call,
-                            LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
-                    LinearLayout videoButton = createActionButton(mContext, R.drawable.video,
-                            LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
+                        muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
 
-                    LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
-                            AndroidUtilities.dp(68), 1.0f);
-                    params.gravity = Gravity.CENTER;
-                    params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+                        LinearLayout shareButton = createActionButton(mContext, R.drawable.filled_share,
+                                LocaleController.getString("Share", R.string.BotShare), v -> onShareClick());
+                        LinearLayout stopButton = createActionButton(mContext, R.drawable.block,
+                                LocaleController.getString("Stop", R.string.Stop), v -> onStopBotClick());
 
-                    actionButtonsLayout.addView(messageButton, params);
-                    actionButtonsLayout.addView(muteButton, params);
-                    actionButtonsLayout.addView(callButton, params);
-                    actionButtonsLayout.addView(videoButton, params);
+                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                AndroidUtilities.dp(68), 1.0f);
+                        params.gravity = Gravity.CENTER;
+                        params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                        actionButtonsLayout.addView(messageButton, params);
+                        actionButtonsLayout.addView(muteButton, params);
+                        actionButtonsLayout.addView(shareButton, params);
+                        actionButtonsLayout.addView(stopButton, params);
+                    } else {
+                        // Create user-specific action buttons: message, mute, call, video
+                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
+                                LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
+
+                        // Check initial mute state to set correct icon and text
+                        boolean isInitiallyMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                        int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                        String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                                : LocaleController.getString("Mute", R.string.Mute);
+
+                        muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
+
+                        LinearLayout callButton = createActionButton(mContext, R.drawable.call,
+                                LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
+                        LinearLayout videoButton = createActionButton(mContext, R.drawable.video,
+                                LocaleController.getString("Video", R.string.Video), v -> onVideoCallClick());
+
+                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                AndroidUtilities.dp(68), 1.0f);
+                        params.gravity = Gravity.CENTER;
+                        params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                        actionButtonsLayout.addView(messageButton, params);
+                        actionButtonsLayout.addView(muteButton, params);
+                        actionButtonsLayout.addView(callButton, params);
+                        actionButtonsLayout.addView(videoButton, params);
+                    }
 
                     view = actionButtonsLayout;
                     // Remove static background color, will be handled by custom drawing
