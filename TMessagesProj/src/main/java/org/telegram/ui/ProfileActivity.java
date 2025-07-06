@@ -10169,6 +10169,10 @@ public class ProfileActivity extends BaseFragment
                         || user != null && !TextUtils.isEmpty(username);
                 boolean hasPhone = user != null && (!TextUtils.isEmpty(user.phone) || !TextUtils.isEmpty(vcardPhone));
 
+                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
+                    actionButtonsRow = rowCount++;
+                }
+
                 if (userInfo != null && (userInfo.flags2 & 64) != 0
                         && (profileChannelMessageFetcher == null || !profileChannelMessageFetcher.loaded
                                 || profileChannelMessageFetcher.messageObject != null)) {
@@ -10177,10 +10181,6 @@ public class ProfileActivity extends BaseFragment
                         channelRow = rowCount++;
                         channelDividerRow = rowCount++;
                     }
-                }
-
-                if (userId != 0 && !UserObject.isUserSelf(user) && !isBot) {
-                    actionButtonsRow = rowCount++;
                 }
 
                 infoStartRow = rowCount;
@@ -12802,7 +12802,18 @@ public class ProfileActivity extends BaseFragment
     // Method to update action buttons background when expansion state changes
     private void updateActionButtonsBackground() {
         if (actionButtonsLayout != null) {
-            actionButtonsLayout.invalidate();
+            // Force blur update if expansion progress changed significantly
+            float progress = Math.min(1f, Math.max(0f, expandProgress));
+            int currentBlurRadius = calculateBlurRadius(progress);
+            if (Math.abs(lastBlurRadius - currentBlurRadius) > 1) {
+                // Clear cache to force blur regeneration with new radius
+                if (cachedBlurredBackground != null) {
+                    cachedBlurredBackground.recycle();
+                    cachedBlurredBackground = null;
+                }
+                // Update lastBlurRadius to current value to ensure proper caching logic
+                lastBlurRadius = currentBlurRadius;
+            }
 
             // Update individual button backgrounds
             for (int i = 0; i < actionButtonsLayout.getChildCount(); i++) {
@@ -12819,17 +12830,16 @@ public class ProfileActivity extends BaseFragment
             // Update padding based on expansion progress
             updateActionButtonsPadding();
 
-            // Force blur update if expansion progress changed significantly
-            float progress = Math.min(1f, Math.max(0f, expandProgress));
-            int currentBlurRadius = calculateBlurRadius(progress);
-            if (Math.abs(lastBlurRadius - currentBlurRadius) > 1) {
-                // Clear cache to force blur regeneration with new radius
-                if (cachedBlurredBackground != null) {
-                    cachedBlurredBackground.recycle();
-                    cachedBlurredBackground = null;
+            // Force a redraw of the action buttons layout
+            // Use postInvalidate() to ensure it happens on the next UI thread cycle
+            actionButtonsLayout.postInvalidate();
+
+            // Also invalidate on the next frame to handle timing issues
+            actionButtonsLayout.post(() -> {
+                if (actionButtonsLayout != null) {
+                    actionButtonsLayout.invalidate();
                 }
-                lastBlurRadius = -1;
-            }
+            });
         }
     }
 
@@ -13240,6 +13250,10 @@ public class ProfileActivity extends BaseFragment
                             super.onLayout(changed, l, t, r, b);
                             // Update padding based on expansion progress
                             updateActionButtonsPadding();
+                            // Force background update on layout changes to handle first-time expansion
+                            if (changed) {
+                                post(() -> updateActionButtonsBackground());
+                            }
                         }
                     };
                     actionButtonsLayout.setOrientation(LinearLayout.HORIZONTAL);
@@ -13289,6 +13303,12 @@ public class ProfileActivity extends BaseFragment
             if (holder.itemView instanceof TextDetailCell) {
                 ((TextDetailCell) holder.itemView).textView.setLoading(loadingSpan);
                 ((TextDetailCell) holder.itemView).valueTextView.setLoading(loadingSpan);
+            }
+            // Ensure action buttons background is properly initialized when view is
+            // attached
+            if (holder.itemView == actionButtonsLayout) {
+                // Post to next frame to ensure layout is complete
+                actionButtonsLayout.post(() -> updateActionButtonsBackground());
             }
         }
 
