@@ -3555,6 +3555,7 @@
     <string name="SendingGif">Sending GIF...</string>
     <!--bot-->
     <string name="Bot">bot</string>
+    <string name="Share">Share</string>
     <string name="BotShare">Share</string>
     <string name="BotSettings">Settings</string>
     <string name="BotHelp">Help</string>
@@ -4180,6 +4181,7 @@
     <string name="ConferenceCalling">calling...</string>
     <string name="VoipGroupExpandStream">Expand</string>
     <string name="VoipGroupMinimizeStream">Minimize</string>
+    <string name="Leave">Leave</string>
     <string name="VoipGroupLeave">Leave</string>
     <string name="VoipGroupEnd">End</string>
     <string name="VoipConferenceRemoveMemberAlertTitle2">Remove participant</string>

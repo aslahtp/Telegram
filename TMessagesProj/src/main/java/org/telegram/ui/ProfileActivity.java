@@ -6596,12 +6596,16 @@ public class ProfileActivity extends BaseFragment
                     @Override
                     public void toggleSound() {
                         SharedPreferences preferences = MessagesController.getNotificationsSettings(currentAccount);
+                        long currentDialogId = getDialogId();
+                        long currentTopicId = isTopic ? topicId : 0;
                         boolean enabled = !preferences.getBoolean(
-                                "sound_enabled_" + NotificationsController.getSharedPrefKey(dialogId, topicId),
+                                "sound_enabled_"
+                                        + NotificationsController.getSharedPrefKey(currentDialogId, currentTopicId),
                                 true);
                         preferences.edit()
                                 .putBoolean(
-                                        "sound_enabled_" + NotificationsController.getSharedPrefKey(dialogId, topicId),
+                                        "sound_enabled_" + NotificationsController.getSharedPrefKey(currentDialogId,
+                                                currentTopicId),
                                         enabled)
                                 .apply();
                         if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
@@ -6615,8 +6619,10 @@ public class ProfileActivity extends BaseFragment
 
                     @Override
                     public void muteFor(int timeInSeconds) {
+                        long currentDialogId = getDialogId();
+                        long currentTopicId = isTopic ? topicId : 0;
                         if (timeInSeconds == 0) {
-                            if (getMessagesController().isDialogMuted(dialogId, topicId)) {
+                            if (getMessagesController().isDialogMuted(currentDialogId, currentTopicId)) {
                                 toggleMute();
                             }
                             if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
@@ -6627,7 +6633,7 @@ public class ProfileActivity extends BaseFragment
                                         getResourceProvider()).show();
                             }
                         } else {
-                            getNotificationsController().muteUntil(dialogId, topicId, timeInSeconds);
+                            getNotificationsController().muteUntil(currentDialogId, currentTopicId, timeInSeconds);
                             if (BulletinFactory.canShowBulletin(ProfileActivity.this)) {
                                 BulletinFactory.createMuteBulletin(
                                         ProfileActivity.this,
@@ -6646,18 +6652,21 @@ public class ProfileActivity extends BaseFragment
 
                     @Override
                     public void showCustomize() {
-                        if (dialogId != 0) {
+                        long currentDialogId = getDialogId();
+                        if (currentDialogId != 0) {
                             Bundle args = new Bundle();
-                            args.putLong("dialog_id", dialogId);
-                            args.putLong("topic_id", topicId);
+                            args.putLong("dialog_id", currentDialogId);
+                            args.putLong("topic_id", isTopic ? topicId : 0);
                             presentFragment(new ProfileNotificationsActivity(args, resourcesProvider));
                         }
                     }
 
                     @Override
                     public void toggleMute() {
-                        boolean muted = getMessagesController().isDialogMuted(dialogId, topicId);
-                        getNotificationsController().muteDialog(dialogId, topicId, !muted);
+                        long currentDialogId = getDialogId();
+                        long currentTopicId = isTopic ? topicId : 0;
+                        boolean muted = getMessagesController().isDialogMuted(currentDialogId, currentTopicId);
+                        getNotificationsController().muteDialog(currentDialogId, currentTopicId, !muted);
                         if (ProfileActivity.this.fragmentView != null) {
                             BulletinFactory.createMuteBulletin(ProfileActivity.this, !muted, null).show();
                         }
@@ -6672,14 +6681,14 @@ public class ProfileActivity extends BaseFragment
                     @Override
                     public void openExceptions() {
                         Bundle bundle = new Bundle();
-                        bundle.putLong("dialog_id", dialogId);
+                        bundle.putLong("dialog_id", getDialogId());
                         TopicsNotifySettingsFragments notifySettings = new TopicsNotifySettingsFragments(bundle);
                         notifySettings.setExceptions(notificationsExceptionTopics);
                         presentFragment(notifySettings);
                     }
                 },
                 getResourceProvider());
-        chatNotificationsPopupWrapper.update(dialogId, topicId, notificationsExceptionTopics);
+        chatNotificationsPopupWrapper.update(getDialogId(), isTopic ? topicId : 0, notificationsExceptionTopics);
 
         View anchorView = actionBar;
         int[] location = new int[2];
@@ -6772,6 +6781,38 @@ public class ProfileActivity extends BaseFragment
                 }
             }
         }
+    }
+
+    private void onChannelShareClick() {
+        if (chatId != 0 && currentChat != null) {
+            String link = "";
+            if (ChatObject.isPublic(currentChat)) {
+                link = "https://" + getMessagesController().linkPrefix + "/"
+                        + ChatObject.getPublicUsername(currentChat);
+            } else {
+                link = "https://" + getMessagesController().linkPrefix + "/c/" + currentChat.id;
+            }
+            ShareAlert shareAlert = new ShareAlert(getParentActivity(), null, link, false, link, false) {
+                @Override
+                protected void onSend(LongSparseArray<TLRPC.Dialog> dids, int count, TLRPC.TL_forumTopic topic,
+                        boolean showToast) {
+                    if (!showToast)
+                        return;
+                    AndroidUtilities.runOnUIThread(() -> {
+                        BulletinFactory.createInviteSentBulletin(getParentActivity(), contentView, dids.size(),
+                                dids.size() == 1 ? dids.valueAt(0).id : 0, count,
+                                getThemedColor(Theme.key_undo_background), getThemedColor(Theme.key_undo_infoColor))
+                                .show();
+                    }, 250);
+                }
+            };
+            showDialog(shareAlert);
+        }
+    }
+
+    private void onChannelLeaveClick() {
+        // Use the same logic as the "leave channel" event from the three dot menu
+        leaveChatPressed();
     }
 
     private void onWriteButtonClick() {
@@ -10394,6 +10435,12 @@ public class ProfileActivity extends BaseFragment
                 sharedMediaRow = rowCount++;
             }
         } else if (chatId != 0) {
+            // Check if this is a joined channel (not megagroup) to show action buttons
+            if (currentChat != null && ChatObject.isChannel(currentChat) && !currentChat.megagroup
+                    && !ChatObject.isNotInChat(currentChat)) {
+                actionButtonsRow = rowCount++;
+            }
+
             if (chatInfo != null
                     && (!TextUtils.isEmpty(chatInfo.about) || chatInfo.location instanceof TLRPC.TL_channelLocation)
                     || ChatObject.isPublic(currentChat)) {
@@ -13020,8 +13067,10 @@ public class ProfileActivity extends BaseFragment
             if (firstChild instanceof ImageView) {
                 ImageView iconView = (ImageView) firstChild;
 
-                // Check if dialog is muted
-                boolean isMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                // Check if dialog is muted - use getDialogId() for proper channel support
+                long currentDialogId = getDialogId();
+                long currentTopicId = isTopic ? topicId : 0;
+                boolean isMuted = getMessagesController().isDialogMuted(currentDialogId, currentTopicId);
 
                 // Update icon based on mute state
                 if (isMuted) {
@@ -13039,7 +13088,9 @@ public class ProfileActivity extends BaseFragment
                 View secondChild = muteButton.getChildAt(1);
                 if (secondChild instanceof TextView) {
                     TextView textView = (TextView) secondChild;
-                    boolean isMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                    long currentDialogId = getDialogId();
+                    long currentTopicId = isTopic ? topicId : 0;
+                    boolean isMuted = getMessagesController().isDialogMuted(currentDialogId, currentTopicId);
                     textView.setText(isMuted ? LocaleController.getString("Unmute", R.string.Unmute)
                             : LocaleController.getString("Mute", R.string.Mute));
                 }
@@ -13378,11 +13429,42 @@ public class ProfileActivity extends BaseFragment
                     actionButtonsLayout.setWillNotDraw(false); // Enable custom drawing
                     actionButtonsLayout.setBackgroundColor(Color.TRANSPARENT); // Ensure no default background
 
-                    // Check if this is a bot profile
+                    // Check profile type: bot, channel, or user
                     TLRPC.User user = getMessagesController().getUser(userId);
                     boolean isBotProfile = user != null && user.bot;
+                    boolean isChannelProfile = chatId != 0 && currentChat != null &&
+                            ChatObject.isChannel(currentChat) && !currentChat.megagroup &&
+                            !ChatObject.isNotInChat(currentChat);
 
-                    if (isBotProfile) {
+                    if (isChannelProfile) {
+                        // Create channel-specific action buttons: mute, share, leave (only 3 buttons)
+                        // Check initial mute state to set correct icon and text
+                        // For channels, use getDialogId() which returns -chatId, and topicId should be
+                        // 0
+                        boolean isInitiallyMuted = getMessagesController().isDialogMuted(getDialogId(), 0);
+                        int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                        String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                                : LocaleController.getString("Mute", R.string.Mute);
+
+                        muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
+
+                        LinearLayout shareButton = createActionButton(mContext, R.drawable.filled_share,
+                                LocaleController.getString("Share", R.string.Share),
+                                v -> onChannelShareClick());
+                        LinearLayout leaveButton = createActionButton(mContext, R.drawable.leave,
+                                LocaleController.getString("Leave", R.string.Leave),
+                                v -> onChannelLeaveClick());
+
+                        // For channels, use equal width with more spacing (3 buttons instead of 4)
+                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                AndroidUtilities.dp(68), 1.0f);
+                        params.gravity = Gravity.CENTER;
+                        params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+
+                        actionButtonsLayout.addView(muteButton, params);
+                        actionButtonsLayout.addView(shareButton, params);
+                        actionButtonsLayout.addView(leaveButton, params);
+                    } else if (isBotProfile) {
                         // Create bot-specific action buttons: message, mute, share, stop
                         LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
                                 LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
