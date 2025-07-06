@@ -674,6 +674,7 @@ public class ProfileActivity extends BaseFragment
 
     private int actionButtonsRow;
     private LinearLayout actionButtonsLayout; // Reference to action buttons layout for dynamic background
+    private LinearLayout muteButton; // Reference to mute button for dynamic icon updates
     private Bitmap cachedBlurredBackground; // Cache for blurred background
     private Bitmap lastProfileBitmap; // Reference to last profile bitmap used for caching
     private int lastBlurRadius = -1; // Track last blur radius for caching
@@ -6636,6 +6637,8 @@ public class ProfileActivity extends BaseFragment
                             if (notificationsRow >= 0 && listAdapter != null) {
                                 listAdapter.notifyItemChanged(notificationsRow);
                             }
+                            // Update mute button icon to reflect new state
+                            updateMuteButtonIcon();
                         }
                     }
 
@@ -6660,6 +6663,8 @@ public class ProfileActivity extends BaseFragment
                         if (notificationsRow >= 0 && listAdapter != null) {
                             listAdapter.notifyItemChanged(notificationsRow);
                         }
+                        // Update mute button icon to reflect new state
+                        updateMuteButtonIcon();
                     }
 
                     @Override
@@ -12932,6 +12937,41 @@ public class ProfileActivity extends BaseFragment
         }
     }
 
+    // Method to update mute button icon based on notification state
+    private void updateMuteButtonIcon() {
+        if (muteButton != null && muteButton.getChildCount() > 0) {
+            // Get the ImageView from the mute button (first child is the icon)
+            View firstChild = muteButton.getChildAt(0);
+            if (firstChild instanceof ImageView) {
+                ImageView iconView = (ImageView) firstChild;
+
+                // Check if dialog is muted
+                boolean isMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+
+                // Update icon based on mute state
+                if (isMuted) {
+                    iconView.setImageResource(R.drawable.unmute);
+                } else {
+                    iconView.setImageResource(R.drawable.mute);
+                }
+
+                // Reapply color filter
+                iconView.setColorFilter(Color.WHITE, PorterDuff.Mode.MULTIPLY);
+            }
+
+            // Also update the text if needed
+            if (muteButton.getChildCount() > 1) {
+                View secondChild = muteButton.getChildAt(1);
+                if (secondChild instanceof TextView) {
+                    TextView textView = (TextView) secondChild;
+                    boolean isMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                    textView.setText(isMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                            : LocaleController.getString("Mute", R.string.Mute));
+                }
+            }
+        }
+    }
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
         private final static int VIEW_TYPE_HEADER = 1,
                 VIEW_TYPE_TEXT_DETAIL = 2,
@@ -13266,8 +13306,15 @@ public class ProfileActivity extends BaseFragment
                     // Use your actual icon resources here (replace with your own if needed)
                     LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
                             LocaleController.getString("Message", R.string.Message), v -> onMessageClick());
-                    LinearLayout muteButton = createActionButton(mContext, R.drawable.mute,
-                            LocaleController.getString("Mute", R.string.Mute), v -> onMuteClick());
+
+                    // Check initial mute state to set correct icon and text
+                    boolean isInitiallyMuted = getMessagesController().isDialogMuted(dialogId, topicId);
+                    int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                    String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                            : LocaleController.getString("Mute", R.string.Mute);
+
+                    muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
+
                     LinearLayout callButton = createActionButton(mContext, R.drawable.call,
                             LocaleController.getString("Call", R.string.Call), v -> onAudioCallClick());
                     LinearLayout videoButton = createActionButton(mContext, R.drawable.video,
@@ -13674,6 +13721,8 @@ public class ProfileActivity extends BaseFragment
 
                     } else if (position == actionButtonsRow) {
                         // Action buttons are handled in onCreateViewHolder
+                        // Update mute button icon to ensure correct state
+                        updateMuteButtonIcon();
                         break;
                     } else if (position == botStarsBalanceRow) {
                         final TL_stars.StarsAmount stars_balance = BotStarsController.getInstance(currentAccount)
