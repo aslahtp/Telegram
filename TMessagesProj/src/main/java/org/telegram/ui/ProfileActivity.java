@@ -6168,7 +6168,16 @@ public class ProfileActivity extends BaseFragment
         checkPhotoDescriptionAlpha();
         avatarContainer.setScaleX(avatarScale);
         avatarContainer.setScaleY(avatarScale);
-        avatarContainer.setTranslationX(AndroidUtilities.lerp(avatarX, 0f, value));
+        // Calculate consistent center positions for both states to avoid jerky
+        // animation
+        float avatarWidthForCentering = AndroidUtilities.dp(42) * 2.0f;
+        float screenWidthForAnimation = AndroidUtilities.displaySize.x;
+        float minimizedAvatarX = (screenWidthForAnimation - avatarWidthForCentering) / 2f - AndroidUtilities.dp(64f);
+        float expandedAvatarX = 0f; // Center position when expanded
+
+        // Use fixed center positions instead of dynamic avatarX to prevent jerky
+        // movement
+        avatarContainer.setTranslationX(AndroidUtilities.lerp(minimizedAvatarX, expandedAvatarX, value));
         avatarContainer.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(avatarY), 0f, value));
         avatarImage.setRoundRadius((int) AndroidUtilities.lerp(getSmallAvatarRoundRadius(), 0f, value));
         if (storyView != null) {
@@ -8224,6 +8233,23 @@ public class ProfileActivity extends BaseFragment
         if (avatarContainer != null) {
             final float diff = Math.min(1f, extraHeight / AndroidUtilities.dp(88f));
 
+            // Simplified notch hiding logic - detect when avatar should hide
+            boolean shouldHideIntoNotch = false;
+            float hideProgress = 0f;
+
+            // When minimized (diff close to 0), check if we're scrolling down
+            if (diff < 0.1f && !isPulledDown && !openAnimationInProgress) {
+                // Get scroll position
+                int scrollY = listView.computeVerticalScrollOffset();
+
+                // Start hiding when scrolled down past a small threshold
+                if (scrollY > AndroidUtilities.dp(20)) {
+                    shouldHideIntoNotch = true;
+                    // Calculate hide progress - hide completely after 60dp of scroll
+                    hideProgress = Math.min(1.0f, (scrollY - AndroidUtilities.dp(20)) / AndroidUtilities.dp(60));
+                }
+            }
+
             listView.setTopGlowOffset((int) extraHeight);
 
             listView.setOverScrollMode(
@@ -8310,10 +8336,35 @@ public class ProfileActivity extends BaseFragment
                 }
             }
 
-            avatarX = -AndroidUtilities.dpf2(47f) * diff;
-            avatarY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+            // Calculate proper center position for minimized avatar (use consistent width
+            // with minimized section)
+            float avatarWidthForCentering = AndroidUtilities.dp(42) * 2.0f; // Same as minimized section calculation
+            float screenWidthForCentering = AndroidUtilities.displaySize.x;
+            float targetCenterX = (screenWidthForCentering - avatarWidthForCentering) / 2f - AndroidUtilities.dp(64f);
+
+            // Animate from expanded position (-47dp when diff=1) to center position
+            // (targetCenterX when diff=0)
+            avatarX = AndroidUtilities.lerp(targetCenterX, -AndroidUtilities.dpf2(47f), diff);
+            // Independent avatar positioning - moved up when minimized
+            float baseAvatarY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
                     + ActionBar.getCurrentActionBarHeight() / 2.0f * (1.0f + diff) - 21 * AndroidUtilities.density
                     + 27 * AndroidUtilities.density * diff + actionBar.getTranslationY();
+            // Move avatar up by 15dp when minimized (when diff is 0)
+            avatarY = baseAvatarY - AndroidUtilities.dp(15) * (1.0f - diff);
+
+            // Apply notch hiding effect when conditions are met
+            if (shouldHideIntoNotch) {
+                // Apply additional upward translation to hide avatar into notch
+                float notchHideTranslation = AndroidUtilities.dp(60) * hideProgress;
+                avatarY -= notchHideTranslation;
+
+                // Apply alpha fade - completely disappear when fully hidden
+                float avatarAlpha = 1.0f - hideProgress; // Fade from 1.0 to 0.0
+                avatarContainer.setAlpha(avatarAlpha);
+            } else {
+                // Reset alpha when not scrolling down
+                avatarContainer.setAlpha(1.0f);
+            }
 
             float h = openAnimationInProgress ? initialAnimationExtraHeight : extraHeight;
             if (h > AndroidUtilities.dp(88f) || isPulledDown) {
@@ -8566,6 +8617,8 @@ public class ProfileActivity extends BaseFragment
                     avatarContainer.setScaleY(2.0f);
                     avatarContainer.setTranslationX(centerX);
                     avatarContainer.setTranslationY((float) Math.ceil(avatarY) - AndroidUtilities.dp(35f));
+
+                    // Apply notch hiding effect to timer and star items as well
                     float extra = AndroidUtilities.dp(42) * avatarScale - AndroidUtilities.dp(42);
                     timeItem.setTranslationX(avatarContainer.getX() + AndroidUtilities.dp(16) + extra);
                     timeItem.setTranslationY(avatarContainer.getY() + AndroidUtilities.dp(15) + extra);
@@ -8573,12 +8626,26 @@ public class ProfileActivity extends BaseFragment
                     starBgItem.setTranslationY(avatarContainer.getY() + AndroidUtilities.dp(24) + extra);
                     starFgItem.setTranslationX(avatarContainer.getX() + AndroidUtilities.dp(28) + extra);
                     starFgItem.setTranslationY(avatarContainer.getY() + AndroidUtilities.dp(24) + extra);
+
+                    // Apply alpha to timer and star items when hiding into notch
+                    if (shouldHideIntoNotch) {
+                        float itemAlpha = 1.0f - hideProgress; // Completely disappear when fully hidden
+                        timeItem.setAlpha(itemAlpha);
+                        starBgItem.setAlpha(itemAlpha);
+                        starFgItem.setAlpha(itemAlpha);
+                    } else {
+                        timeItem.setAlpha(1.0f);
+                        starBgItem.setAlpha(1.0f);
+                        starFgItem.setAlpha(1.0f);
+                    }
                 }
                 nameX = -21 * AndroidUtilities.density * diff;
-                nameY = (float) Math.floor(avatarY) + AndroidUtilities.dp(1.3f) + AndroidUtilities.dp(7) * diff
+                // Independent name positioning - use baseAvatarY instead of avatarY to keep
+                // original position
+                nameY = (float) Math.floor(baseAvatarY) + AndroidUtilities.dp(1.3f) + AndroidUtilities.dp(7) * diff
                         + titleAnimationsYDiff * (1f - avatarAnimationProgress);
                 onlineX = -21 * AndroidUtilities.density * diff;
-                onlineY = (float) Math.floor(avatarY) + AndroidUtilities.dp(24)
+                onlineY = (float) Math.floor(baseAvatarY) + AndroidUtilities.dp(24)
                         + (float) Math.floor(11 * AndroidUtilities.density) * diff;
                 if (showStatusButton != null) {
                     showStatusButton.setAlpha((int) (0xFF * diff));
@@ -8697,10 +8764,15 @@ public class ProfileActivity extends BaseFragment
 
     private void refreshNameAndOnlineXY() {
         nameX = AndroidUtilities.dp(-21f) + avatarContainer.getMeasuredWidth() * (avatarScale - (42f + 18f) / 42f);
-        nameY = (float) Math.floor(avatarY) + AndroidUtilities.dp(1.3f) + AndroidUtilities.dp(7f)
+        // Independent name positioning - calculate name position independently from
+        // avatar position
+        float baseNameY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+                + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density
+                + actionBar.getTranslationY();
+        nameY = (float) Math.floor(baseNameY) + AndroidUtilities.dp(1.3f) + AndroidUtilities.dp(7f)
                 + avatarContainer.getMeasuredHeight() * (avatarScale - (42f + 18f) / 42f) / 2f;
         onlineX = AndroidUtilities.dp(-21f) + avatarContainer.getMeasuredWidth() * (avatarScale - (42f + 18f) / 42f);
-        onlineY = (float) Math.floor(avatarY) + AndroidUtilities.dp(24)
+        onlineY = (float) Math.floor(baseNameY) + AndroidUtilities.dp(24)
                 + (float) Math.floor(11 * AndroidUtilities.density)
                 + avatarContainer.getMeasuredHeight() * (avatarScale - (42f + 18f) / 42f) / 2f;
     }
