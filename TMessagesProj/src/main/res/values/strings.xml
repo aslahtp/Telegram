@@ -568,6 +568,7 @@
     <string name="ActionUniqueGiftResaleInbound_other">**un1** bought you a gift for %d Stars!</string>
     <string name="ActionStarGiftInbound">%s sent you a gift</string>
     <string name="ActionStarGift">Gift</string>
+    <string name="Gift">Gift</string>
     <string name="ActionGiftPremiumTitle2_one">%d Month Premium</string>
     <string name="ActionGiftPremiumTitle2_other">%d Months Premium</string>
     <string name="ActionGiftPremiumText">Subscription for exclusive Telegram features.</string>

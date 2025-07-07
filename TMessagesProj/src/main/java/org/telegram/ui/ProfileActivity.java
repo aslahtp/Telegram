@@ -6820,6 +6820,13 @@ public class ProfileActivity extends BaseFragment
         openDiscussion();
     }
 
+    private void onGiftClick() {
+        // Open the gift sheet for this channel
+        if (chatInfo != null && chatInfo.stargifts_available) {
+            showDialog(new GiftSheet(getContext(), currentAccount, getDialogId(), null, null));
+        }
+    }
+
     private void onWriteButtonClick() {
         if (userId != 0) {
             if (imageUpdater != null) {
@@ -13442,8 +13449,11 @@ public class ProfileActivity extends BaseFragment
                             !ChatObject.isNotInChat(currentChat);
 
                     if (isChannelProfile) {
-                        // Check if channel has discussion group connected
+                        // Check if channel has discussion group connected or gifts available
                         boolean hasDiscussionGroup = chatInfo != null && chatInfo.linked_chat_id != 0;
+                        boolean hasGifts = !BuildVars.IS_BILLING_UNAVAILABLE
+                                && !getMessagesController().premiumPurchaseBlocked()
+                                && chatInfo != null && chatInfo.stargifts_available;
 
                         // Check initial mute state to set correct icon and text
                         // For channels, use getDialogId() which returns -chatId, and topicId should be
@@ -13462,7 +13472,24 @@ public class ProfileActivity extends BaseFragment
                                 LocaleController.getString("Leave", R.string.Leave),
                                 v -> onChannelLeaveClick());
 
-                        if (hasDiscussionGroup) {
+                        if (hasGifts) {
+                            // Create gift button for channels with gifts available: mute, gift, share,
+                            // leave (4 buttons)
+                            LinearLayout giftButton = createActionButton(mContext, R.drawable.gift,
+                                    LocaleController.getString("Gift", R.string.Gift),
+                                    v -> onGiftClick());
+
+                            // For channels with gifts, use equal width with less spacing (4 buttons)
+                            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                    AndroidUtilities.dp(68), 1.0f);
+                            params.gravity = Gravity.CENTER;
+                            params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                            actionButtonsLayout.addView(muteButton, params);
+                            actionButtonsLayout.addView(giftButton, params);
+                            actionButtonsLayout.addView(shareButton, params);
+                            actionButtonsLayout.addView(leaveButton, params);
+                        } else if (hasDiscussionGroup) {
                             // Create discuss button for channels with discussion groups: mute, discuss,
                             // share, leave (4 buttons)
                             LinearLayout discussButton = createActionButton(mContext, R.drawable.message,
@@ -13481,7 +13508,8 @@ public class ProfileActivity extends BaseFragment
                             actionButtonsLayout.addView(shareButton, params);
                             actionButtonsLayout.addView(leaveButton, params);
                         } else {
-                            // For channels without discussion group, use equal width with more spacing (3
+                            // For channels without discussion group or gifts, use equal width with more
+                            // spacing (3
                             // buttons)
                             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
                                     AndroidUtilities.dp(68), 1.0f);
