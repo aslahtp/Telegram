@@ -13054,20 +13054,36 @@ public class ProfileActivity extends BaseFragment
         // Calculate the progress of profile expansion
         float progress = Math.min(1f, Math.max(0f, expandProgress));
 
+        // Check if we're in dark mode
+        boolean isDarkMode = Theme.isCurrentThemeDark();
+
         if (progress > 0.5f) {
-            // When expanded, use a more transparent dark overlay to let blurred background
-            // show through
+            // When expanded, use a more transparent overlay to let blurred background show
+            // through
             int alpha = (int) (60 * (progress - 0.5f) * 2f); // Gradually increase opacity from 0 to 60 as expansion
                                                              // increases
-            return ColorUtils.setAlphaComponent(Color.BLACK, Math.max(40, alpha)); // Minimum 40, maximum 60 opacity
+
+            if (isDarkMode) {
+                // In dark mode, use a lighter overlay with more opacity for better visibility
+                return ColorUtils.setAlphaComponent(Color.WHITE, Math.max(25, alpha / 2)); // More visible in dark mode
+            } else {
+                // In light mode, keep the original dark overlay
+                return ColorUtils.setAlphaComponent(Color.BLACK, Math.max(40, alpha)); // Minimum 40, maximum 60 opacity
+            }
         } else {
-            // When minimized, use a slightly darker version of the action bar background
+            // When minimized, use a contrasted version of the action bar background
             int baseColor = ColorUtils.blendARGB(
                     getThemedColor(Theme.key_windowBackgroundWhite),
                     actionBarBackgroundColor,
                     1f - progress * 2f);
-            // Make it slightly darker by blending with black
-            return ColorUtils.blendARGB(baseColor, Color.BLACK, 0.10f);
+
+            if (isDarkMode) {
+                // In dark mode, make buttons lighter for better contrast
+                return ColorUtils.blendARGB(baseColor, Color.WHITE, 0.15f); // Blend with white for visibility
+            } else {
+                // In light mode, make buttons darker as before
+                return ColorUtils.blendARGB(baseColor, Color.BLACK, 0.10f);
+            }
         }
     }
 
