@@ -6207,7 +6207,12 @@ public class ProfileActivity extends BaseFragment
         }
 
         if (extraHeight > AndroidUtilities.dp(88f) && expandProgress < 0.33f) {
-            refreshNameAndOnlineXY();
+            // Only call refreshNameAndOnlineXY if we don't have action buttons
+            // to avoid overriding our scroll-based positioning logic
+            boolean hasActionButtons = actionButtonsRow != -1;
+            if (!hasActionButtons) {
+                refreshNameAndOnlineXY();
+            }
         }
 
         if (scamDrawable != null) {
@@ -6251,11 +6256,34 @@ public class ProfileActivity extends BaseFragment
         if (isMinimizedWithActions) {
             // Don't apply expansion animation - let main scroll logic in needLayout()
             // handle smooth animation
-            // Just apply the current positions without any expansion animation interference
+            // Calculate current scroll-based position to ensure consistency
+            float actionBarHeight = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+                    + ActionBar.getCurrentActionBarHeight();
+            float listTopPadding = AndroidUtilities.dp(88);
+            float actionButtonsPosition = actionBarHeight + listTopPadding;
+            float startY = actionButtonsPosition - AndroidUtilities.dp(40);
+
+            // Use consistent positioning based on current extraHeight
+            float currentDiff = Math.min(1.0f,
+                    Math.max(0.0f, (AndroidUtilities.dp(88f) - extraHeight) / AndroidUtilities.dp(88f)));
+            float baseAvatarY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+                    + ActionBar.getCurrentActionBarHeight() / 2.0f * (1.0f + currentDiff)
+                    - 21 * AndroidUtilities.density
+                    + 27 * AndroidUtilities.density * currentDiff + actionBar.getTranslationY();
+            float targetY = (float) Math.floor(baseAvatarY) + AndroidUtilities.dp(1.3f)
+                    + AndroidUtilities.dp(7) * currentDiff;
+
+            float scrollProgress = Math.min(1.0f, currentDiff * 3.0f);
+            float currentNameY = AndroidUtilities.lerp(startY, targetY, scrollProgress);
+            float currentOnlineY = AndroidUtilities.lerp(startY + AndroidUtilities.dp(22),
+                    (float) Math.floor(baseAvatarY) + AndroidUtilities.dp(24)
+                            + (float) Math.floor(11 * AndroidUtilities.density) * currentDiff,
+                    scrollProgress);
+
             nameTextView[1].setTranslationX(nameX);
-            nameTextView[1].setTranslationY(nameY);
+            nameTextView[1].setTranslationY(currentNameY);
             onlineTextView[1].setTranslationX(onlineX + customPhotoOffset);
-            onlineTextView[1].setTranslationY(onlineY);
+            onlineTextView[1].setTranslationY(currentOnlineY);
         } else {
             // Use original complex animation for actual profile expansion (when extraHeight
             // > 88dp)
@@ -6287,8 +6315,33 @@ public class ProfileActivity extends BaseFragment
             mediaCounterTextView.setTranslationY(onlineTextView[1].getTranslationY());
         } else {
             // When using scroll animation, use current online position
-            mediaCounterTextView.setTranslationX(onlineX);
-            mediaCounterTextView.setTranslationY(onlineY);
+            if (isMinimizedWithActions) {
+                // Use the same calculated position for consistency
+                float actionBarHeight = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+                        + ActionBar.getCurrentActionBarHeight();
+                float listTopPadding = AndroidUtilities.dp(88);
+                float actionButtonsPosition = actionBarHeight + listTopPadding;
+                float startY = actionButtonsPosition - AndroidUtilities.dp(40);
+
+                float currentDiff = Math.min(1.0f,
+                        Math.max(0.0f, (AndroidUtilities.dp(88f) - extraHeight) / AndroidUtilities.dp(88f)));
+                float baseAvatarY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
+                        + ActionBar.getCurrentActionBarHeight() / 2.0f * (1.0f + currentDiff)
+                        - 21 * AndroidUtilities.density
+                        + 27 * AndroidUtilities.density * currentDiff + actionBar.getTranslationY();
+
+                float scrollProgress = Math.min(1.0f, currentDiff * 3.0f);
+                float currentOnlineY = AndroidUtilities.lerp(startY + AndroidUtilities.dp(22),
+                        (float) Math.floor(baseAvatarY) + AndroidUtilities.dp(24)
+                                + (float) Math.floor(11 * AndroidUtilities.density) * currentDiff,
+                        scrollProgress);
+
+                mediaCounterTextView.setTranslationX(onlineX);
+                mediaCounterTextView.setTranslationY(currentOnlineY);
+            } else {
+                mediaCounterTextView.setTranslationX(onlineX);
+                mediaCounterTextView.setTranslationY(onlineY);
+            }
         }
         final Object onlineTextViewTag = onlineTextView[1].getTag();
         int statusColor;
@@ -8382,8 +8435,8 @@ public class ProfileActivity extends BaseFragment
             float baseAvatarY = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0)
                     + ActionBar.getCurrentActionBarHeight() / 2.0f * (1.0f + diff) - 21 * AndroidUtilities.density
                     + 27 * AndroidUtilities.density * diff + actionBar.getTranslationY();
-            // Move avatar up by 15dp when minimized (when diff is 0)
-            avatarY = baseAvatarY - AndroidUtilities.dp(15) * (1.0f - diff);
+            // Move avatar up by 30dp when minimized (when diff is 0)
+            avatarY = baseAvatarY - AndroidUtilities.dp(15) * (1.0f - diff)- AndroidUtilities.dp(30);
 
             // Apply notch hiding effect when conditions are met
             if (shouldHideIntoNotch) {
@@ -8551,6 +8604,23 @@ public class ProfileActivity extends BaseFragment
 
                     if (expandAnimator == null || !expandAnimator.isRunning()) {
                         refreshNameAndOnlineXY();
+
+                        // Always override with our scroll-based positioning logic for consistency
+                        boolean hasActionButtons = actionButtonsRow != -1;
+                        if (hasActionButtons) {
+                            // Calculate starting position (above action buttons when diff = 0)
+                            float actionBarHeight = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight
+                                    : 0)
+                                    + ActionBar.getCurrentActionBarHeight();
+                            float listTopPadding = AndroidUtilities.dp(88);
+                            float actionButtonsPosition = actionBarHeight + listTopPadding;
+                            float startY = actionButtonsPosition - AndroidUtilities.dp(40);
+
+                            // Since this is the expanded view context, apply the action buttons positioning
+                            nameY = startY;
+                            onlineY = nameY + AndroidUtilities.dp(22);
+                        }
+
                         nameTextView[1].setTranslationX(nameX);
                         nameTextView[1].setTranslationY(nameY);
                         onlineTextView[1].setTranslationX(onlineX + customPhotoOffset);
@@ -8692,6 +8762,8 @@ public class ProfileActivity extends BaseFragment
                     // Smooth interpolation based on scroll progress
                     // Use diff directly as it represents scroll state (0 = minimized, increases
                     // with scroll)
+                    // For initial/default state (diff = 0), we want to stay at startY (above action
+                    // buttons)
                     float scrollProgress = Math.min(1.0f, diff * 3.0f); // Faster transition for smooth animation
                     nameY = AndroidUtilities.lerp(startY, targetY, scrollProgress)
                             + titleAnimationsYDiff * (1f - avatarAnimationProgress);
@@ -8724,6 +8796,7 @@ public class ProfileActivity extends BaseFragment
                         continue;
                     }
                     if (expandAnimator == null || !expandAnimator.isRunning()) {
+                        // Apply the positioning logic consistently
                         nameTextView[a].setTranslationX(nameX);
                         nameTextView[a].setTranslationY(nameY);
 
@@ -10472,6 +10545,13 @@ public class ProfileActivity extends BaseFragment
 
                 if (userId != 0 && !UserObject.isUserSelf(user) && (!isBot || (isBot && user != null && user.bot))) {
                     actionButtonsRow = rowCount++;
+                    // Force layout update to apply correct positioning now that action buttons are
+                    // detected
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (fragmentView != null) {
+                            needLayout(true);
+                        }
+                    });
                 }
 
                 if (userInfo != null && (userInfo.flags2 & 64) != 0
@@ -10622,6 +10702,13 @@ public class ProfileActivity extends BaseFragment
             if (currentChat != null && ChatObject.isChannel(currentChat) && !currentChat.megagroup
                     && !ChatObject.isNotInChat(currentChat)) {
                 actionButtonsRow = rowCount++;
+                // Force layout update to apply correct positioning now that action buttons are
+                // detected
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (fragmentView != null) {
+                        needLayout(true);
+                    }
+                });
             }
 
             if (chatInfo != null
