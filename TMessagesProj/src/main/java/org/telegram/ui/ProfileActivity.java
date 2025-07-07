@@ -13449,11 +13449,11 @@ public class ProfileActivity extends BaseFragment
                             !ChatObject.isNotInChat(currentChat);
 
                     if (isChannelProfile) {
-                        // Check if channel has discussion group connected or gifts available
+                        // Check if channel has discussion group connected or gifts tab in profile
                         boolean hasDiscussionGroup = chatInfo != null && chatInfo.linked_chat_id != 0;
-                        boolean hasGifts = !BuildVars.IS_BILLING_UNAVAILABLE
-                                && !getMessagesController().premiumPurchaseBlocked()
-                                && chatInfo != null && chatInfo.stargifts_available;
+                        boolean hasGifts = sharedMediaLayout != null &&
+                                sharedMediaLayout.scrollSlidingTextTabStrip != null &&
+                                sharedMediaLayout.scrollSlidingTextTabStrip.hasTab(SharedMediaLayout.TAB_GIFTS);
 
                         // Check initial mute state to set correct icon and text
                         // For channels, use getDialogId() which returns -chatId, and topicId should be
@@ -13966,9 +13966,130 @@ public class ProfileActivity extends BaseFragment
                                 R.drawable.menu_feature_paid, true);
 
                     } else if (position == actionButtonsRow) {
-                        // Action buttons are handled in onCreateViewHolder
-                        // Update mute button icon to ensure correct state
-                        updateMuteButtonIcon();
+                        // Action buttons need to be recreated when chatInfo changes
+                        // because gift availability might change after chat info is loaded
+                        if (actionButtonsLayout != null) {
+                            // Check if we need to recreate buttons based on current profile tabs
+                            // The gift button should only show if there's actually a gifts tab in the
+                            // profile
+                            boolean hasGifts = sharedMediaLayout != null &&
+                                    sharedMediaLayout.scrollSlidingTextTabStrip != null &&
+                                    sharedMediaLayout.scrollSlidingTextTabStrip.hasTab(SharedMediaLayout.TAB_GIFTS);
+                            boolean hasDiscussionGroup = chatInfo != null && chatInfo.linked_chat_id != 0;
+
+                            // Count current buttons to see if layout needs to change
+                            int currentButtonCount = actionButtonsLayout.getChildCount();
+                            int expectedButtonCount;
+
+                            if (hasGifts || hasDiscussionGroup) {
+                                expectedButtonCount = 4; // mute, gift/discuss, share, leave
+                            } else {
+                                expectedButtonCount = 3; // mute, share, leave
+                            }
+
+                            // Check if we need to recreate buttons
+                            boolean needsRecreation = currentButtonCount != expectedButtonCount;
+
+                            // Also check if gift button exists when it shouldn't or vice versa
+                            if (!needsRecreation && currentButtonCount == 4) {
+                                View secondButton = actionButtonsLayout.getChildAt(1);
+                                if (secondButton instanceof LinearLayout) {
+                                    LinearLayout button = (LinearLayout) secondButton;
+                                    if (button.getChildCount() > 1 && button.getChildAt(1) instanceof TextView) {
+                                        TextView textView = (TextView) button.getChildAt(1);
+                                        String buttonText = textView.getText().toString();
+                                        String giftText = LocaleController.getString("Gift", R.string.Gift);
+                                        String discussText = LocaleController.getString("Discuss", R.string.Discuss);
+
+                                        // Check if we have gift button but need discuss, or vice versa
+                                        if ((hasGifts && !buttonText.equals(giftText)) ||
+                                                (hasDiscussionGroup && !hasGifts && !buttonText.equals(discussText))) {
+                                            needsRecreation = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (needsRecreation) {
+                                // Clear existing buttons
+                                actionButtonsLayout.removeAllViews();
+
+                                // Recreate buttons with current logic
+                                boolean isChannelProfile = chatId != 0 && currentChat != null &&
+                                        ChatObject.isChannel(currentChat) && !currentChat.megagroup &&
+                                        !ChatObject.isNotInChat(currentChat);
+
+                                if (isChannelProfile) {
+                                    // Check initial mute state to set correct icon and text
+                                    boolean isInitiallyMuted = getMessagesController().isDialogMuted(getDialogId(), 0);
+                                    int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                                    String muteText = isInitiallyMuted
+                                            ? LocaleController.getString("Unmute", R.string.Unmute)
+                                            : LocaleController.getString("Mute", R.string.Mute);
+
+                                    muteButton = createActionButton(mContext, muteIconRes, muteText,
+                                            v -> onMuteClick());
+
+                                    LinearLayout shareButton = createActionButton(mContext, R.drawable.filled_share,
+                                            LocaleController.getString("Share", R.string.Share),
+                                            v -> onChannelShareClick());
+                                    LinearLayout leaveButton = createActionButton(mContext, R.drawable.leave,
+                                            LocaleController.getString("Leave", R.string.Leave),
+                                            v -> onChannelLeaveClick());
+
+                                    if (hasGifts) {
+                                        // Create gift button for channels with gifts available
+                                        LinearLayout giftButton = createActionButton(mContext, R.drawable.gift,
+                                                LocaleController.getString("Gift", R.string.Gift),
+                                                v -> onGiftClick());
+
+                                        // For channels with gifts, use equal width with less spacing (4 buttons)
+                                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                                AndroidUtilities.dp(68), 1.0f);
+                                        params.gravity = Gravity.CENTER;
+                                        params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                                        actionButtonsLayout.addView(muteButton, params);
+                                        actionButtonsLayout.addView(giftButton, params);
+                                        actionButtonsLayout.addView(shareButton, params);
+                                        actionButtonsLayout.addView(leaveButton, params);
+                                    } else if (hasDiscussionGroup) {
+                                        // Create discuss button for channels with discussion groups
+                                        LinearLayout discussButton = createActionButton(mContext, R.drawable.message,
+                                                LocaleController.getString("Discuss", R.string.Discuss),
+                                                v -> onDiscussClick());
+
+                                        // For channels with discussion group, use equal width with less spacing (4
+                                        // buttons)
+                                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                                AndroidUtilities.dp(68), 1.0f);
+                                        params.gravity = Gravity.CENTER;
+                                        params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                                        actionButtonsLayout.addView(muteButton, params);
+                                        actionButtonsLayout.addView(discussButton, params);
+                                        actionButtonsLayout.addView(shareButton, params);
+                                        actionButtonsLayout.addView(leaveButton, params);
+                                    } else {
+                                        // For channels without discussion group or gifts, use more spacing (3 buttons)
+                                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                                AndroidUtilities.dp(68), 1.0f);
+                                        params.gravity = Gravity.CENTER;
+                                        params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+
+                                        actionButtonsLayout.addView(muteButton, params);
+                                        actionButtonsLayout.addView(shareButton, params);
+                                        actionButtonsLayout.addView(leaveButton, params);
+                                    }
+                                }
+
+                                // Update backgrounds after recreation
+                                updateActionButtonsBackground();
+                            } else {
+                                // Just update mute button icon if no recreation needed
+                                updateMuteButtonIcon();
+                            }
+                        }
                         break;
                     } else if (position == botStarsBalanceRow) {
                         final TL_stars.StarsAmount stars_balance = BotStarsController.getInstance(currentAccount)
