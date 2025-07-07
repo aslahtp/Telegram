@@ -678,6 +678,10 @@ public class ProfileActivity extends BaseFragment
     private Bitmap cachedBlurredBackground; // Cache for blurred background
     private Bitmap lastProfileBitmap; // Reference to last profile bitmap used for caching
     private int lastBlurRadius = -1; // Track last blur radius for caching
+    private Float cachedBackgroundLuminance; // Cache for background luminance value (0-255)
+    private Bitmap lastAnalyzedBitmap; // Track which bitmap we last analyzed for luminance
+    private float lastCalculatedLuminance = -1f; // Track last calculated luminance to detect significant changes
+    private static final float LUMINANCE_CHANGE_THRESHOLD = 15f; // Only recalculate if difference > 15
 
     private boolean hoursExpanded;
     private boolean hoursShownMine;
@@ -12745,6 +12749,10 @@ public class ProfileActivity extends BaseFragment
                             if (cachedBlurredBackground != null) {
                                 cachedBlurredBackground.recycle();
                             }
+                            // Clear luminance cache when creating new blurred background
+                            cachedBackgroundLuminance = null;
+                            lastAnalyzedBitmap = null;
+                            lastCalculatedLuminance = -1f;
 
                             // Extract bottom 10% of the profile picture for action buttons background
                             Bitmap croppedBitmap = extractBottom10Percent(bitmap);
@@ -12925,6 +12933,10 @@ public class ProfileActivity extends BaseFragment
         }
         lastProfileBitmap = null;
         lastBlurRadius = -1;
+        // Also clear luminance cache
+        cachedBackgroundLuminance = null;
+        lastAnalyzedBitmap = null;
+        lastCalculatedLuminance = -1f;
     }
 
     private void drawActionBarBackground(Canvas canvas, int width, int height, float alpha) {
@@ -12950,6 +12962,10 @@ public class ProfileActivity extends BaseFragment
                     cachedBlurredBackground.recycle();
                     cachedBlurredBackground = null;
                 }
+                // Clear luminance cache when blur cache is cleared
+                cachedBackgroundLuminance = null;
+                lastAnalyzedBitmap = null;
+                lastCalculatedLuminance = -1f;
                 // Update lastBlurRadius to current value to ensure proper caching logic
                 lastBlurRadius = currentBlurRadius;
             }
@@ -13054,22 +13070,26 @@ public class ProfileActivity extends BaseFragment
         // Calculate the progress of profile expansion
         float progress = Math.min(1f, Math.max(0f, expandProgress));
 
-        // Check if we're in dark mode
-        boolean isDarkMode = Theme.isCurrentThemeDark();
+        // Get background luminance (0-255) for smooth blending
+        float luminance = getBackgroundLuminance(progress);
+        // Convert to 0-1 range for easier calculations
+        float luminanceRatio = luminance / 255f;
 
         if (progress > 0.5f) {
-            // When expanded, use a more transparent overlay to let blurred background show
-            // through
-            int alpha = (int) (60 * (progress - 0.5f) * 2f); // Gradually increase opacity from 0 to 60 as expansion
-                                                             // increases
+            // When expanded, use a darker overlay that smoothly adapts to background
+            // luminance
+            int alpha = (int) (80 * (progress - 0.5f) * 2f); // Increased from 60 to 80 for darker buttons
 
-            if (isDarkMode) {
-                // In dark mode, use a lighter overlay with more opacity for better visibility
-                return ColorUtils.setAlphaComponent(Color.WHITE, Math.max(25, alpha / 2)); // More visible in dark mode
-            } else {
-                // In light mode, keep the original dark overlay
-                return ColorUtils.setAlphaComponent(Color.BLACK, Math.max(40, alpha)); // Minimum 40, maximum 60 opacity
-            }
+            // Smooth blending based on luminance instead of hard cutoff
+            // luminanceRatio 0 (dark) -> white overlay, luminanceRatio 1 (light) -> black
+            // overlay
+            int overlayColor = ColorUtils.blendARGB(Color.WHITE, Color.BLACK, luminanceRatio);
+
+            // Adjust alpha based on luminance - make buttons more opaque when expanded
+            // Increased base multipliers for darker appearance
+            int adjustedAlpha = (int) (Math.max(40, alpha) * (0.6f + 0.8f * luminanceRatio));
+
+            return ColorUtils.setAlphaComponent(overlayColor, adjustedAlpha);
         } else {
             // When minimized, use a contrasted version of the action bar background
             int baseColor = ColorUtils.blendARGB(
@@ -13077,14 +13097,173 @@ public class ProfileActivity extends BaseFragment
                     actionBarBackgroundColor,
                     1f - progress * 2f);
 
-            if (isDarkMode) {
-                // In dark mode, make buttons lighter for better contrast
-                return ColorUtils.blendARGB(baseColor, Color.WHITE, 0.15f); // Blend with white for visibility
+            // Smooth blending based on luminance
+            if (luminanceRatio > 0.5f) {
+                // Lighter background - blend with black
+                float blendAmount = 0.05f + (luminanceRatio - 0.5f) * 0.1f; // 0.05 to 0.15
+                return ColorUtils.blendARGB(baseColor, Color.BLACK, blendAmount);
             } else {
-                // In light mode, make buttons darker as before
-                return ColorUtils.blendARGB(baseColor, Color.BLACK, 0.10f);
+                // Darker background - blend with white
+                float blendAmount = 0.05f + (0.5f - luminanceRatio) * 0.2f; // 0.05 to 0.25
+                return ColorUtils.blendARGB(baseColor, Color.WHITE, blendAmount);
             }
         }
+    }
+
+    // Helper method to get the background luminance (0-255)
+    private float getBackgroundLuminance(float progress) {
+        // Only calculate luminance when profile is fully expanded (at the last
+        // position)
+        if (progress >= 0.95f) { // Consider 95% and above as "fully expanded"
+            // When fully expanded, check the blurred background luminance
+            if (cachedBlurredBackground != null && !cachedBlurredBackground.isRecycled()) {
+                // Check if we already analyzed this bitmap
+                if (lastAnalyzedBitmap == cachedBlurredBackground && cachedBackgroundLuminance != null) {
+                    return cachedBackgroundLuminance;
+                }
+                // Analyze and cache the result only when fully expanded
+                float luminance = getImageLuminance(cachedBlurredBackground);
+                cachedBackgroundLuminance = luminance;
+                lastAnalyzedBitmap = cachedBlurredBackground;
+                return luminance;
+            }
+
+            // Fallback: check if we have a profile image and analyze it
+            ImageReceiver currentImageReceiver = null;
+            if (avatarsViewPager != null && avatarsViewPager.getVisibility() == View.VISIBLE
+                    && avatarsViewPager.getRealCount() > 1) {
+                BackupImageView currentItemView = avatarsViewPager.getCurrentItemView();
+                if (currentItemView != null) {
+                    currentImageReceiver = currentItemView.getImageReceiver();
+                }
+            }
+            if (currentImageReceiver == null && avatarImage != null) {
+                currentImageReceiver = avatarImage.getImageReceiver();
+            }
+            if (currentImageReceiver != null) {
+                Drawable drawable = currentImageReceiver.getDrawable();
+                if (drawable instanceof BitmapDrawable) {
+                    Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
+                    if (bitmap != null && !bitmap.isRecycled()) {
+                        // Check if we already analyzed this bitmap
+                        if (lastAnalyzedBitmap == bitmap && cachedBackgroundLuminance != null) {
+                            return cachedBackgroundLuminance;
+                        }
+                        // Analyze and cache the result only when fully expanded
+                        float luminance = getImageLuminance(bitmap);
+                        cachedBackgroundLuminance = luminance;
+                        lastAnalyzedBitmap = bitmap;
+                        return luminance;
+                    }
+                }
+            }
+        } else if (cachedBackgroundLuminance != null) {
+            // When not fully expanded, use cached value if available
+            return cachedBackgroundLuminance;
+        }
+
+        // Fallback to theme mode when no image, not expanded, or no cache available
+        // Return appropriate luminance based on theme: dark = 50, light = 200
+        return Theme.isCurrentThemeDark() ? 50f : 200f;
+    }
+
+    // Helper method to get the average luminance of an image/bitmap (0-255)
+    private float getImageLuminance(Bitmap bitmap) {
+        if (bitmap == null || bitmap.isRecycled()) {
+            return Theme.isCurrentThemeDark() ? 50f : 200f; // Fallback to theme
+        }
+
+        try {
+            // First, do a quick sample to check if we need a full calculation
+            float quickLuminance = getQuickLuminanceSample(bitmap);
+
+            // If we have a previous calculation and the difference is small, return cached
+            // value
+            if (lastCalculatedLuminance >= 0 &&
+                    Math.abs(quickLuminance - lastCalculatedLuminance) < LUMINANCE_CHANGE_THRESHOLD) {
+                return lastCalculatedLuminance;
+            }
+
+            // Significant change detected or first calculation - do full analysis
+            float fullLuminance = calculateFullLuminance(bitmap);
+            lastCalculatedLuminance = fullLuminance;
+            return fullLuminance;
+
+        } catch (Exception e) {
+            // If sampling fails, fallback to theme
+        }
+
+        return Theme.isCurrentThemeDark() ? 50f : 200f; // Fallback to theme
+    }
+
+    // Quick luminance sample using fewer pixels for threshold checking
+    private float getQuickLuminanceSample(Bitmap bitmap) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        // Sample only 4 pixels from corners of center area for speed
+        int centerX = width / 2;
+        int centerY = height / 2;
+        int offset = Math.min(width, height) / 8; // Small offset from center
+
+        int totalLuminance = 0;
+        int sampleCount = 0;
+
+        // Sample 4 points around center
+        int[][] points = {
+                { centerX - offset, centerY - offset },
+                { centerX + offset, centerY - offset },
+                { centerX - offset, centerY + offset },
+                { centerX + offset, centerY + offset }
+        };
+
+        for (int[] point : points) {
+            int x = Math.max(0, Math.min(width - 1, point[0]));
+            int y = Math.max(0, Math.min(height - 1, point[1]));
+
+            int pixel = bitmap.getPixel(x, y);
+            int r = (pixel >> 16) & 0xFF;
+            int g = (pixel >> 8) & 0xFF;
+            int b = pixel & 0xFF;
+
+            int luminance = (int) (0.299 * r + 0.587 * g + 0.114 * b);
+            totalLuminance += luminance;
+            sampleCount++;
+        }
+
+        return sampleCount > 0 ? (float) totalLuminance / sampleCount : 127f;
+    }
+
+    // Full luminance calculation with comprehensive sampling
+    private float calculateFullLuminance(Bitmap bitmap) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int sampleSize = Math.min(20, Math.min(width, height)); // Sample up to 20x20 pixels
+
+        int totalLuminance = 0;
+        int sampleCount = 0;
+
+        // Sample from center area
+        int startX = Math.max(0, (width - sampleSize) / 2);
+        int startY = Math.max(0, (height - sampleSize) / 2);
+        int endX = Math.min(width, startX + sampleSize);
+        int endY = Math.min(height, startY + sampleSize);
+
+        for (int x = startX; x < endX; x += 2) { // Sample every 2nd pixel for performance
+            for (int y = startY; y < endY; y += 2) {
+                int pixel = bitmap.getPixel(x, y);
+                int r = (pixel >> 16) & 0xFF;
+                int g = (pixel >> 8) & 0xFF;
+                int b = pixel & 0xFF;
+
+                // Calculate luminance using standard formula
+                int luminance = (int) (0.299 * r + 0.587 * g + 0.114 * b);
+                totalLuminance += luminance;
+                sampleCount++;
+            }
+        }
+
+        return sampleCount > 0 ? (float) totalLuminance / sampleCount : 127f;
     }
 
     // Method to update mute button icon based on notification state
