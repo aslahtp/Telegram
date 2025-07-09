@@ -1010,6 +1010,7 @@
     <string name="EventLogFilterByAdmins">Filter actions by admins</string>
     <string name="EventLogFilterByAdminsAll">Show Actions by All Admins</string>
     <string name="EventLogFilterCalls">Voice chats</string>
+    <string name="Voicechats">Voice chats</string>
     <string name="EventLogFilterInvites">Invite links</string>
     <string name="EventLogToggledSlowmodeOn">un1 set the slow mode timer to %1$s</string>
     <string name="EventLogToggledSlowmodeOff">un1 disabled the slow mode</string>

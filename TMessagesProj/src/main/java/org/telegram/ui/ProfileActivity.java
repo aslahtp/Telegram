@@ -6926,6 +6926,47 @@ public class ProfileActivity extends BaseFragment
         }
     }
 
+    private void onGroupMessageClick() {
+        // Open chat with the group
+        if (chatId != 0) {
+            Bundle args = new Bundle();
+            args.putLong("chat_id", chatId);
+            if (!getMessagesController().checkCanOpenChat(args, ProfileActivity.this)) {
+                return;
+            }
+            boolean removeFragment = arguments.getBoolean("removeFragmentOnChatOpen", true);
+            if (!AndroidUtilities.isTablet() && removeFragment) {
+                getNotificationCenter().removeObserver(ProfileActivity.this, NotificationCenter.closeChats);
+                getNotificationCenter().postNotificationName(NotificationCenter.closeChats);
+            }
+            ChatActivity chatActivity = new ChatActivity(args);
+            presentFragment(chatActivity, removeFragment);
+            if (AndroidUtilities.isTablet()) {
+                finishFragment();
+            }
+        }
+    }
+
+    private void onGroupVoiceChatClick() {
+        // Start or join voice chat in the group using the same logic as the three-dot
+        // menu
+        if (chatId != 0 && currentChat != null) {
+            ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
+            if (call == null) {
+                VoIPHelper.showGroupCallAlert(ProfileActivity.this, currentChat, null, false,
+                        getAccountInstance());
+            } else {
+                VoIPHelper.startCall(currentChat, null, null, false, getParentActivity(),
+                        ProfileActivity.this, getAccountInstance());
+            }
+        }
+    }
+
+    private void onGroupLeaveClick() {
+        // Leave the group using the same logic as the leave action from menu
+        leaveChatPressed();
+    }
+
     private void onWriteButtonClick() {
         if (userId != 0) {
             if (imageUpdater != null) {
@@ -8436,7 +8477,7 @@ public class ProfileActivity extends BaseFragment
                     + ActionBar.getCurrentActionBarHeight() / 2.0f * (1.0f + diff) - 21 * AndroidUtilities.density
                     + 27 * AndroidUtilities.density * diff + actionBar.getTranslationY();
             // Move avatar up by 30dp when minimized (when diff is 0)
-            avatarY = baseAvatarY - AndroidUtilities.dp(15) * (1.0f - diff)- AndroidUtilities.dp(30);
+            avatarY = baseAvatarY - AndroidUtilities.dp(15) * (1.0f - diff) - AndroidUtilities.dp(30);
 
             // Apply notch hiding effect when conditions are met
             if (shouldHideIntoNotch) {
@@ -10710,6 +10751,18 @@ public class ProfileActivity extends BaseFragment
                     }
                 });
             }
+            // Check if this is a normal group (megagroup) to show action buttons
+            else if (currentChat != null && ChatObject.isChannel(currentChat) && currentChat.megagroup
+                    && !ChatObject.isNotInChat(currentChat)) {
+                actionButtonsRow = rowCount++;
+                // Force layout update to apply correct positioning now that action buttons are
+                // detected
+                AndroidUtilities.runOnUIThread(() -> {
+                    if (fragmentView != null) {
+                        needLayout(true);
+                    }
+                });
+            }
 
             if (chatInfo != null
                     && (!TextUtils.isEmpty(chatInfo.about) || chatInfo.location instanceof TLRPC.TL_channelLocation)
@@ -10831,6 +10884,18 @@ public class ProfileActivity extends BaseFragment
                     }
                 }
             } else if (chatInfo != null) {
+                // Check if this is a small group (basic group) to show action buttons
+                if (currentChat != null && !ChatObject.isNotInChat(currentChat)) {
+                    actionButtonsRow = rowCount++;
+                    // Force layout update to apply correct positioning now that action buttons are
+                    // detected
+                    AndroidUtilities.runOnUIThread(() -> {
+                        if (fragmentView != null) {
+                            needLayout(true);
+                        }
+                    });
+                }
+
                 if (!isTopic && chatInfo.participants != null && chatInfo.participants.participants != null
                         && !(chatInfo.participants instanceof TLRPC.TL_chatParticipantsForbidden)) {
                     if (ChatObject.canAddUsers(currentChat) || currentChat.default_banned_rights == null
@@ -13996,6 +14061,39 @@ public class ProfileActivity extends BaseFragment
                         actionButtonsLayout.addView(muteButton, params);
                         actionButtonsLayout.addView(shareButton, params);
                         actionButtonsLayout.addView(stopButton, params);
+                    } else if (chatId != 0 && currentChat != null && !ChatObject.isNotInChat(currentChat) &&
+                            ((!ChatObject.isChannel(currentChat))
+                                    || (ChatObject.isChannel(currentChat) && currentChat.megagroup))) {
+                        // Create group-specific action buttons: message, mute, voice chat
+                        // (conditional), leave
+                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
+                                LocaleController.getString("Message", R.string.Message), v -> onGroupMessageClick());
+
+                        // Check initial mute state to set correct icon and text
+                        boolean isInitiallyMuted = getMessagesController().isDialogMuted(getDialogId(), 0);
+                        int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                        String muteText = isInitiallyMuted ? LocaleController.getString("Unmute", R.string.Unmute)
+                                : LocaleController.getString("Mute", R.string.Mute);
+
+                        muteButton = createActionButton(mContext, muteIconRes, muteText, v -> onMuteClick());
+
+                        LinearLayout voiceChatButton = createActionButton(mContext, R.drawable.live_stream,
+                                LocaleController.getString("Voice chats", R.string.Voicechats),
+                                v -> onGroupVoiceChatClick());
+                        LinearLayout leaveButton = createActionButton(mContext, R.drawable.leave,
+                                LocaleController.getString("Leave", R.string.Leave), v -> onGroupLeaveClick());
+
+                        // Start with 4 buttons by default (will be adjusted in onBindViewHolder based
+                        // on voice chat availability)
+                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                AndroidUtilities.dp(68), 1.0f);
+                        params.gravity = Gravity.CENTER;
+                        params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                        actionButtonsLayout.addView(messageButton, params);
+                        actionButtonsLayout.addView(muteButton, params);
+                        actionButtonsLayout.addView(voiceChatButton, params);
+                        actionButtonsLayout.addView(leaveButton, params);
                     } else {
                         // Create user-specific action buttons: message, mute, call, video
                         LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
@@ -14430,10 +14528,23 @@ public class ProfileActivity extends BaseFragment
                             int currentButtonCount = actionButtonsLayout.getChildCount();
                             int expectedButtonCount;
 
-                            if (hasGifts || hasDiscussionGroup) {
-                                expectedButtonCount = 4; // mute, gift/discuss, share, leave
+                            // Determine if this is a channel profile
+                            boolean isChannelProfile = chatId != 0 && currentChat != null &&
+                                    ChatObject.isChannel(currentChat) && !currentChat.megagroup &&
+                                    !ChatObject.isNotInChat(currentChat);
+
+                            if (isChannelProfile) {
+                                if (hasGifts || hasDiscussionGroup) {
+                                    expectedButtonCount = 4; // mute, gift/discuss, share, leave
+                                } else {
+                                    expectedButtonCount = 3; // mute, share, leave
+                                }
                             } else {
-                                expectedButtonCount = 3; // mute, share, leave
+                                // For groups, check if voice chat should be shown
+                                // Show voice chat if user can manage calls OR if an active call exists
+                                boolean canShowVoiceChat = chatInfo != null &&
+                                        (ChatObject.canManageCalls(currentChat) || chatInfo.call != null);
+                                expectedButtonCount = canShowVoiceChat ? 4 : 3; // message, mute, [voicechat], leave
                             }
 
                             // Check if we need to recreate buttons
@@ -14464,10 +14575,6 @@ public class ProfileActivity extends BaseFragment
                                 actionButtonsLayout.removeAllViews();
 
                                 // Recreate buttons with current logic
-                                boolean isChannelProfile = chatId != 0 && currentChat != null &&
-                                        ChatObject.isChannel(currentChat) && !currentChat.megagroup &&
-                                        !ChatObject.isNotInChat(currentChat);
-
                                 if (isChannelProfile) {
                                     // Check initial mute state to set correct icon and text
                                     boolean isInitiallyMuted = getMessagesController().isDialogMuted(getDialogId(), 0);
@@ -14529,6 +14636,67 @@ public class ProfileActivity extends BaseFragment
                                         actionButtonsLayout.addView(muteButton, params);
                                         actionButtonsLayout.addView(shareButton, params);
                                         actionButtonsLayout.addView(leaveButton, params);
+                                    }
+                                } else {
+                                    // Handle both normal groups (megagroups) and small groups (basic groups)
+                                    boolean isGroupProfile = chatId != 0 && currentChat != null &&
+                                            !ChatObject.isNotInChat(currentChat) &&
+                                            ((!ChatObject.isChannel(currentChat)) || // small group
+                                                    (ChatObject.isChannel(currentChat) && currentChat.megagroup)); // megagroup
+
+                                    if (isGroupProfile) {
+                                        // Check initial mute state to set correct icon and text
+                                        boolean isInitiallyMuted = getMessagesController().isDialogMuted(getDialogId(),
+                                                0);
+                                        int muteIconRes = isInitiallyMuted ? R.drawable.unmute : R.drawable.mute;
+                                        String muteText = isInitiallyMuted
+                                                ? LocaleController.getString("Unmute", R.string.Unmute)
+                                                : LocaleController.getString("Mute", R.string.Mute);
+
+                                        // Create action buttons for normal groups: message, mute, voice chat (if
+                                        // permitted), leave
+                                        LinearLayout messageButton = createActionButton(mContext, R.drawable.message,
+                                                LocaleController.getString("Message", R.string.Message),
+                                                v -> onGroupMessageClick());
+
+                                        muteButton = createActionButton(mContext, muteIconRes, muteText,
+                                                v -> onMuteClick());
+
+                                        // Show voice chat button if user can manage calls OR if an active call exists
+                                        boolean canShowVoiceChat = chatInfo != null &&
+                                                (ChatObject.canManageCalls(currentChat) || chatInfo.call != null);
+
+                                        LinearLayout leaveButton = createActionButton(mContext, R.drawable.leave,
+                                                LocaleController.getString("Leave", R.string.Leave),
+                                                v -> onGroupLeaveClick());
+
+                                        if (canShowVoiceChat) {
+                                            // With voice chat: 4 buttons with tighter spacing
+                                            LinearLayout voiceChatButton = createActionButton(mContext,
+                                                    R.drawable.live_stream,
+                                                    LocaleController.getString("Voice chats", R.string.Voicechats),
+                                                    v -> onGroupVoiceChatClick());
+
+                                            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                                    AndroidUtilities.dp(68), 1.0f);
+                                            params.gravity = Gravity.CENTER;
+                                            params.setMargins(AndroidUtilities.dp(4), 0, AndroidUtilities.dp(4), 0);
+
+                                            actionButtonsLayout.addView(messageButton, params);
+                                            actionButtonsLayout.addView(muteButton, params);
+                                            actionButtonsLayout.addView(voiceChatButton, params);
+                                            actionButtonsLayout.addView(leaveButton, params);
+                                        } else {
+                                            // Without voice chat: 3 buttons with wider spacing
+                                            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                                                    AndroidUtilities.dp(68), 1.0f);
+                                            params.gravity = Gravity.CENTER;
+                                            params.setMargins(AndroidUtilities.dp(8), 0, AndroidUtilities.dp(8), 0);
+
+                                            actionButtonsLayout.addView(messageButton, params);
+                                            actionButtonsLayout.addView(muteButton, params);
+                                            actionButtonsLayout.addView(leaveButton, params);
+                                        }
                                     }
                                 }
 
